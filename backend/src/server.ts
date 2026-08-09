@@ -12,33 +12,33 @@ const publicPath = path.join(__dirname, '../public');
 app.use(express.static(publicPath));
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/health', (req: express.Request, res: express.Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // API endpoints (stubs)
-app.get('/api/accounts', (req, res) => {
+app.get('/api/accounts', (req: express.Request, res: express.Response) => {
   res.json({ accounts: [] });
 });
 
-app.get('/api/transactions', (req, res) => {
+app.get('/api/transactions', (req: express.Request, res: express.Response) => {
   res.json({ transactions: [] });
 });
 
-app.get('/api/debts', (req, res) => {
+app.get('/api/debts', (req: express.Request, res: express.Response) => {
   res.json({ debts: [] });
 });
 
-app.post('/api/debts', (req, res) => {
+app.post('/api/debts', (req: express.Request, res: express.Response) => {
   res.status(201).json({ id: 'debt_1', message: 'Debt created (stub)' });
 });
 
-app.post('/api/plaid/link-token', (req, res) => {
+app.post('/api/plaid/link-token', (req: express.Request, res: express.Response) => {
   res.json({ linkToken: 'link-sandbox-stub', expiration: new Date(Date.now() + 3600000).toISOString() });
 });
 
 // Serve index.html for any route not matching an API endpoint (SPA fallback)
-app.get('*', (req, res) => {
+app.get('*', (req: express.Request, res: express.Response) => {
   res.sendFile(path.join(publicPath, 'index.html'), {
     headers: { 'Cache-Control': 'no-cache' }
   });
