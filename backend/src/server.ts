@@ -1,8 +1,27 @@
 import express = require('express');
 import path = require('path');
+import dotenv = require('dotenv');
+import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
+
+// Load environment variables
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Initialize Plaid client
+const plaidConfig = new Configuration({
+  basePath: process.env.PLAID_ENV === 'production'
+    ? PlaidEnvironments.Production
+    : PlaidEnvironments.Sandbox,
+  baseOptions: {
+    headers: {
+      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+      'PLAID-SECRET': process.env.PLAID_SECRET,
+    },
+  },
+});
+const plaidClient = new PlaidApi(plaidConfig);
 
 // Middleware
 app.use(express.json());
@@ -33,26 +52,50 @@ app.post('/api/debts', (req: express.Request, res: express.Response) => {
   res.status(201).json({ id: 'debt_1', message: 'Debt created (stub)' });
 });
 
-app.post('/api/plaid/link-token', (req: express.Request, res: express.Response) => {
-  // TODO: Call Plaid.create_link_token() with proper config
-  res.json({
-    linkToken: 'link-sandbox-' + Math.random().toString(36).substr(2, 9),
-    expiration: new Date(Date.now() + 3600000).toISOString()
-  });
+app.post('/api/plaid/link-token', async (req: express.Request, res: express.Response) => {
+  try {
+    const response = await plaidClient.linkTokenCreate({
+      user: { client_user_id: 'user-' + Date.now() },
+      client_name: 'Personal Finance OS',
+      language: 'en',
+      products: ['auth', 'transactions'],
+      country_codes: ['US'],
+      redirect_uri: process.env.PLAID_REDIRECT_URI || 'http://localhost:3000',
+    });
+    res.json({
+      linkToken: response.data.link_token,
+      expiration: response.data.expiration
+    });
+  } catch (error: any) {
+    console.error('Link token error:', error.message);
+    res.status(500).json({ error: error.message || 'Failed to create link token' });
+  }
 });
 
-app.post('/api/plaid/exchange-token', (req: express.Request, res: express.Response) => {
+app.post('/api/plaid/exchange-token', async (req: express.Request, res: express.Response) => {
   const { publicToken } = req.body;
   if (!publicToken) {
     return res.status(400).json({ error: 'publicToken required' });
   }
-  // TODO: Call Plaid.exchange_public_token() to get access_token
-  // TODO: Store access_token in database for this user
-  res.json({
-    success: true,
-    message: 'Account linked successfully (stub)',
-    accountId: 'acc_' + Math.random().toString(36).substr(2, 9)
-  });
+  try {
+    const response = await plaidClient.itemPublicTokenExchange({
+      public_token: publicToken,
+    });
+    const accessToken = response.data.access_token;
+    const itemId = response.data.item_id;
+
+    // TODO: Store accessToken + itemId in database
+    console.log(`✅ Token exchanged successfully. ItemID: ${itemId}`);
+
+    res.json({
+      success: true,
+      message: 'Account linked successfully',
+      itemId
+    });
+  } catch (error: any) {
+    console.error('Token exchange error:', error.message);
+    res.status(500).json({ error: error.message || 'Failed to exchange token' });
+  }
 });
 
 // Serve index.html for any route not matching an API endpoint (SPA fallback)
