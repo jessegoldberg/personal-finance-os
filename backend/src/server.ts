@@ -68,7 +68,11 @@ app.post('/api/plaid/link-token', async (req: express.Request, res: express.Resp
     });
   } catch (error: any) {
     console.error('Link token error:', error.message);
-    res.status(500).json({ error: error.message || 'Failed to create link token' });
+    console.error('Full error:', JSON.stringify(error.response?.data || error, null, 2));
+    res.status(500).json({
+      error: error.message || 'Failed to create link token',
+      details: error.response?.data?.error_message || error.response?.data
+    });
   }
 });
 
