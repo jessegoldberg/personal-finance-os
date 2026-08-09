@@ -1,10 +1,15 @@
 import express from 'express';
+import path from 'path';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
+
+// Serve static frontend files
+const publicPath = path.join(__dirname, '../public');
+app.use(express.static(publicPath));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -32,9 +37,11 @@ app.post('/api/plaid/link-token', (req, res) => {
   res.json({ linkToken: 'link-sandbox-stub', expiration: new Date(Date.now() + 3600000).toISOString() });
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not found' });
+// Serve index.html for any route not matching an API endpoint (SPA fallback)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(publicPath, 'index.html'), {
+    headers: { 'Cache-Control': 'no-cache' }
+  });
 });
 
 // Start server
