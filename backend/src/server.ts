@@ -1,7 +1,7 @@
 import express = require('express');
 import path = require('path');
 import dotenv = require('dotenv');
-import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
+import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
 
 // Load environment variables
 dotenv.config();
@@ -58,8 +58,8 @@ app.post('/api/plaid/link-token', async (req: express.Request, res: express.Resp
       user: { client_user_id: 'user-' + Date.now() },
       client_name: 'Personal Finance OS',
       language: 'en',
-      products: ['auth', 'transactions'],
-      country_codes: ['US'],
+      products: [Products.Auth, Products.Transactions],
+      country_codes: [CountryCode.Us],
       redirect_uri: process.env.PLAID_REDIRECT_URI || 'http://localhost:3000',
     });
     res.json({
