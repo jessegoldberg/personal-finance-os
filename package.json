@@ -1,0 +1,32 @@
+{
+  "name": "personal-finance-os",
+  "version": "0.1.0",
+  "description": "Claude-powered personal finance dashboard with debt payoff optimization",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && tsx watch server.ts",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && tsc",
+    "build:frontend": "cd frontend && npm run build",
+    "start": "node backend/dist/server.js",
+    "test": "concurrently \"npm run test:backend\" \"npm run test:frontend\"",
+    "test:backend": "cd backend && vitest",
+    "test:frontend": "cd frontend && npm run test",
+    "lint": "concurrently \"npm run lint:backend\" \"npm run lint:frontend\"",
+    "lint:backend": "cd backend && eslint src/**/*.ts",
+    "lint:frontend": "cd frontend && npm run lint"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ]
+}

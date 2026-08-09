@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plaid Link (Sandbox) — Family Finance Tool</title>
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 560px; margin: 60px auto; padding: 0 20px; color: #1a1a1a; }
+  .banner { background: #fff3cd; border: 1px solid #ffe69c; padding: 12px 16px; border-radius: 8px; margin-bottom: 24px; font-size: 14px; }
+  button { background: #111; color: #fff; border: none; padding: 12px 20px; border-radius: 8px; font-size: 15px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { margin-top: 20px; padding: 12px 16px; border-radius: 8px; font-size: 14px; white-space: pre-wrap; display: none; }
+  #status.ok { background: #e6f4ea; border: 1px solid #b7dfc0; display: block; }
+  #status.error { background: #fdecea; border: 1px solid #f3c2bd; display: block; }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <strong>Sandbox only.</strong> Use Plaid's test institution credentials
+  (username <code>user_good</code>, password <code>pass_good</code>) when
+  prompted — this is not connected to any real bank account.
+</div>
+
+<h1>Link a bank account</h1>
+<button id="link-btn">Link Bank Account (Sandbox)</button>
+<div id="status"></div>
+<div id="token-display" style="display: none; margin-top: 20px; padding: 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 8px;">
+  <h3>Account linked successfully</h3>
+  <p><strong>Item ID:</strong> <code id="display-item-id"></code></p>
+  <p><strong>Institution:</strong> <span id="display-institution"></span></p>
+  <p><strong>Access Token:</strong> <code id="display-token" style="font-size: 11px; word-break: break-all;"></code></p>
+  <button id="copy-token-btn" style="margin-top: 12px; background: #007bff; color: #fff;">Copy Token to Clipboard</button>
+  <p style="font-size: 13px; color: #666; margin-top: 12px;">
+    <strong>Next step:</strong> Save this access token in a secure location (e.g., a password manager or encrypted file). You'll use it in future transactions fetches and account checks. Store it as <code>{item_id}: {access_token}</code> for your records.
+  </p>
+</div>
+
+<script>
+// ---- Fill these in before use. Never commit real values here. ----
+const CONFIG = {
+  linkTokenCreateUrl: "https://n8n.thegoldingsfamily.net/webhook/plaid-link-token-create",
+  exchangeUrl: "https://n8n.thegoldingsfamily.net/webhook/plaid-link-exchange",
+  webhookSecretHeaderName: "X-Finance-Secret",   // matches the "Name" field of the Finance Webhook Signing Secret credential
+  webhookSecretHeaderValue: "j8k7yd", // matches the "Value" field of that same credential
+};
+// ---------------------------------------------------------------
+
+const btn = document.getElementById("link-btn");
+const statusEl = document.getElementById("status");
+const tokenDisplayEl = document.getElementById("token-display");
+const copyBtn = document.getElementById("copy-token-btn");
+
+function showStatus(kind, message) {
+  statusEl.className = kind;
+  statusEl.textContent = message;
+  tokenDisplayEl.style.display = "none";
+}
+
+function showTokenSuccess(itemId, institution, accessToken) {
+  statusEl.style.display = "none";
+  document.getElementById("display-item-id").textContent = itemId;
+  document.getElementById("display-institution").textContent = institution || "Unknown";
+  document.getElementById("display-token").textContent = accessToken;
+  tokenDisplayEl.style.display = "block";
+
+  copyBtn.onclick = () => {
+    navigator.clipboard.writeText(accessToken).then(() => {
+      const oldText = copyBtn.textContent;
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => { copyBtn.textContent = oldText; }, 2000);
+    });
+  };
+}
+
+function authHeaders() {
+  return {
+    "Content-Type": "application/json",
+    [CONFIG.webhookSecretHeaderName]: CONFIG.webhookSecretHeaderValue,
+  };
+}
+
+async function createLinkToken() {
+  const res = await fetch(CONFIG.linkTokenCreateUrl, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`link token request failed (${res.status})`);
+  }
+  const data = await res.json();
+  if (!data.link_token) {
+    throw new Error("no link_token in response");
+  }
+  return data.link_token;
+}
+
+async function exchangePublicToken(publicToken, metadata) {
+  const res = await fetch(CONFIG.exchangeUrl, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      public_token: publicToken,
+      institution_name: metadata && metadata.institution ? metadata.institution.name : undefined,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.status !== "linked") {
+    throw new Error(`exchange failed: ${data.error_category || res.status}`);
+  }
+  return data;
+}
+
+btn.addEventListener("click", async () => {
+  btn.disabled = true;
+  showStatus("ok", "Requesting link token…");
+
+  let linkToken;
+  try {
+    linkToken = await createLinkToken();
+  } catch (err) {
+    showStatus("error", "Could not start Link: " + err.message);
+    btn.disabled = false;
+    return;
+  }
+
+  const handler = Plaid.create({
+    token: linkToken,
+    onSuccess: async (publicToken, metadata) => {
+      showStatus("ok", "Exchanging token…");
+      try {
+        const result = await exchangePublicToken(publicToken, metadata);
+        showTokenSuccess(result.item_id, result.institution_name, result.access_token);
+      } catch (err) {
+        showStatus("error", "Link succeeded but token exchange failed: " + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    },
+    onExit: (err) => {
+      btn.disabled = false;
+      if (err) {
+        showStatus("error", "Link exited with an error: " + (err.error_message || err.error_code || "unknown"));
+      }
+    },
+  });
+
+  handler.open();
+});
+</script>
+
+</body>
+</html>

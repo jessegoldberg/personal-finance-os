@@ -1,0 +1,35 @@
+{
+  "description": "Manifest of workflows this repo is allowed to deploy. deploy_n8n_workflows_remote.py reads this list rather than deploying every file under n8n/, so adding a workflow to the deploy path is always a deliberate, reviewable edit.",
+  "workflows": [
+    {
+      "file": "n8n/plaid-sandbox-healthcheck.json",
+      "environment": "sandbox",
+      "moneyMovement": false,
+      "notes": "Read-only Plaid connectivity check. Must stay inactive until a human reviews a manual sandbox test run."
+    },
+    {
+      "file": "n8n/plaid-link-token-create.json",
+      "environment": "sandbox",
+      "moneyMovement": false,
+      "notes": "Webhook for the Link launcher page. Creates a short-lived link_token only. Requires the 'Finance Webhook Signing Secret' and 'Plaid Sandbox Custom Auth' credentials."
+    },
+    {
+      "file": "n8n/plaid-public-token-exchange.json",
+      "environment": "sandbox",
+      "moneyMovement": false,
+      "notes": "Webhook that exchanges a public_token for an access_token and returns it to the caller for the user to store securely. n8n Community-compatible (no env vars, no Public API). Requires the 'Finance Webhook Signing Secret' and 'Plaid Sandbox Custom Auth' credentials."
+    },
+    {
+      "file": "n8n/plaid-transactions-sync.json",
+      "environment": "sandbox",
+      "moneyMovement": false,
+      "notes": "Manual-trigger workflow that calls /transactions/sync for a linked item and emits a redacted summary (counts, date range, absolute total) only. Binds to a per-item Custom Auth credential ('Plaid Sandbox Item 1') holding client_id/secret headers plus the access_token body field. Inactive by default."
+    },
+    {
+      "file": "n8n/plaid-spending-analysis.json",
+      "environment": "sandbox",
+      "moneyMovement": false,
+      "notes": "Manual-trigger workflow: syncs transactions, minimizes to date/amount/merchant/category (drops identifiers), persists minimized set to /automation/finance on atlas, and sends the minimized set to Claude for categorization + advisory recommendations. Requires 'Plaid Sandbox Item 1' and 'Anthropic API Key' (Name=x-api-key) credentials. Transmits minimized transaction data to the Anthropic API by design. Inactive by default."
+    }
+  ]
+}

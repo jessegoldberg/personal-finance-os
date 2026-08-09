@@ -1,0 +1,212 @@
+{
+  "id": "CwwsonjWduOpgagW",
+  "name": "Plaid Public Token Exchange",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "plaid-link-exchange",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d3c3f8d0-0001-4a00-8000-000000000001",
+      "name": "Exchange Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 320],
+      "webhookId": "d3c3f8d0-0001-4a00-8000-100000000001",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "FINANCE_WEBHOOK_SIGNING_SECRET_CREDENTIAL_ID",
+          "name": "Finance Webhook Signing Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sandbox.plaid.com/item/public_token/exchange",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"public_token\": $json.body.public_token } }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "d3c3f8d0-0002-4a00-8000-000000000002",
+      "name": "Exchange Public Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 320],
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "PLAID_SANDBOX_CUSTOM_AUTH_CREDENTIAL_ID",
+          "name": "Plaid Sandbox Custom Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-exchange-ok",
+              "leftValue": "={{ $json.statusCode || 200 }}",
+              "rightValue": 300,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "d3c3f8d0-0003-4a00-8000-000000000003",
+      "name": "Exchange OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 320]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ext-item-id",
+              "name": "item_id",
+              "type": "string",
+              "value": "={{ $json.item_id }}"
+            },
+            {
+              "id": "ext-access-token",
+              "name": "access_token",
+              "type": "string",
+              "value": "={{ $json.access_token }}"
+            },
+            {
+              "id": "ext-institution-name",
+              "name": "institution_name",
+              "type": "string",
+              "value": "={{ $('Exchange Webhook').item.json.body.institution_name || 'Unknown' }}"
+            },
+            {
+              "id": "ext-timestamp",
+              "name": "linked_at",
+              "type": "string",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "id": "d3c3f8d0-0004-4a00-8000-000000000004",
+      "name": "Extract Token Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [880, 320]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"linked\", \"item_id\": $json.item_id, \"institution_name\": $json.institution_name, \"access_token\": $json.access_token, \"linked_at\": $json.linked_at } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "d3c3f8d0-0005-4a00-8000-000000000005",
+      "name": "Return Link Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"error\", \"error_category\": ($json.statusCode >= 500 ? \"plaid_server_error\" : ($json.statusCode === 401 || $json.statusCode === 403 ? \"auth_error\" : \"client_error\")) } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "d3c3f8d0-0006-4a00-8000-000000000006",
+      "name": "Return Exchange Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [660, 480]
+    }
+  ],
+  "connections": {
+    "Exchange Webhook": {
+      "main": [
+        [
+          {
+            "node": "Exchange Public Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exchange Public Token": {
+      "main": [
+        [
+          {
+            "node": "Exchange OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exchange OK?": {
+      "main": [
+        [
+          {
+            "node": "Extract Token Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Exchange Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Token Data": {
+      "main": [
+        [
+          {
+            "node": "Return Link Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "meta": {
+    "description": "Webhook endpoint that exchanges a Plaid Link public_token for an access_token (sandbox only). Returns the access_token to the caller (the frontend) so it can be securely stored by the user. Protected by a shared-secret header (Finance Webhook Signing Secret credential). No dependency on n8n env vars or Public API — fully compatible with n8n Community/free tier.",
+    "moneyMovement": false,
+    "environment": "sandbox"
+  }
+}
