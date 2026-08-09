@@ -6,7 +6,7 @@ WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* backend/pnpm-lock.yaml* ./
 RUN npm install
 COPY backend ./
-RUN rm -rf dist tsconfig.tsbuildinfo && npm run build
+RUN echo "=== backend/src/server.ts ===" && head -15 src/server.ts && echo "=== end ===" && rm -rf dist tsconfig.tsbuildinfo && npm run build
 
 # Build frontend
 WORKDIR /app/frontend
