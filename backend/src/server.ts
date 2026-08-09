@@ -34,7 +34,25 @@ app.post('/api/debts', (req: express.Request, res: express.Response) => {
 });
 
 app.post('/api/plaid/link-token', (req: express.Request, res: express.Response) => {
-  res.json({ linkToken: 'link-sandbox-stub', expiration: new Date(Date.now() + 3600000).toISOString() });
+  // TODO: Call Plaid.create_link_token() with proper config
+  res.json({
+    linkToken: 'link-sandbox-' + Math.random().toString(36).substr(2, 9),
+    expiration: new Date(Date.now() + 3600000).toISOString()
+  });
+});
+
+app.post('/api/plaid/exchange-token', (req: express.Request, res: express.Response) => {
+  const { publicToken } = req.body;
+  if (!publicToken) {
+    return res.status(400).json({ error: 'publicToken required' });
+  }
+  // TODO: Call Plaid.exchange_public_token() to get access_token
+  // TODO: Store access_token in database for this user
+  res.json({
+    success: true,
+    message: 'Account linked successfully (stub)',
+    accountId: 'acc_' + Math.random().toString(36).substr(2, 9)
+  });
 });
 
 // Serve index.html for any route not matching an API endpoint (SPA fallback)
