@@ -48,6 +48,7 @@ app.get('*', (req: express.Request, res: express.Response) => {
 app.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log('🔧 Using new compiled backend with static file serving');
 });
 
 module.exports = app;
