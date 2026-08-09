@@ -3,20 +3,20 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
+# Install root dependencies
 COPY package.json package-lock.json* pnpm-lock.yaml* ./
 RUN npm install
 
-# Copy source code
+# Copy backend and install its dependencies
 COPY backend ./backend
-COPY frontend ./frontend
-
-# Build backend
 WORKDIR /app/backend
+RUN npm install
 RUN npm run build
 
-# Build frontend
+# Copy frontend and install its dependencies
+COPY frontend ./frontend
 WORKDIR /app/frontend
+RUN npm install
 RUN npm run build
 
 # Runtime stage
