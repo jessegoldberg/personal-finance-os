@@ -19,7 +19,7 @@ db.exec(schema);
 
 console.log(`📦 Database initialized at ${dbPath}`);
 
-export const database = db;
+export const database: any = db;
 
 export interface LinkedItem {
   id: string;
