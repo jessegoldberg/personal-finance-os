@@ -61,6 +61,37 @@ function App() {
     onExit: () => console.log('Plaid Link closed')
   })
 
+  const handleCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const csv = event.target?.result as string;
+      try {
+        const res = await fetch('/api/import-csv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ csv, source: file.name })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`Imported ${data.accountsAdded} accounts!`);
+          // Reload accounts
+          const accountRes = await fetch('/api/accounts');
+          const accData = await accountRes.json();
+          setAccounts(accData.accounts || []);
+        } else {
+          alert(`Error: ${data.errors.join(', ')}`);
+        }
+      } catch (err) {
+        console.error('CSV upload error:', err);
+        alert('Failed to upload CSV');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
       <h1>💰 Personal Finance OS</h1>
@@ -113,8 +144,20 @@ function App() {
         </div>
       )}
 
+      <h2 style={{ marginTop: '30px' }}>Import Accounts from CSV</h2>
+      <p style={{ fontSize: '14px', color: '#666' }}>
+        Upload CSVs from Edward Jones, Fidelity, or other brokers (quarterly).
+        Format: account_id, name, type, subtype, current_balance, available_balance
+      </p>
+      <input
+        type="file"
+        accept=".csv"
+        onChange={handleCSVUpload}
+        style={{ padding: '10px' }}
+      />
+
       <p style={{ marginTop: '30px', fontSize: '12px', color: '#666' }}>
-        Phase 1 - Plaid sandbox integration
+        Plaid (daily auto-sync) + CSV import (quarterly manual)
       </p>
     </div>
   )

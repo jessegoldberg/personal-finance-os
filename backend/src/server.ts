@@ -3,6 +3,7 @@ import path = require('path');
 import dotenv = require('dotenv');
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
 import { db_functions, Account } from './db';
+import { importAccountsFromCSV } from './csv-import';
 
 // Load environment variables
 dotenv.config();
@@ -128,6 +129,23 @@ app.post('/api/plaid/exchange-token', async (req: express.Request, res: express.
   } catch (error: any) {
     console.error('Token exchange error:', error.message);
     res.status(500).json({ error: error.message || 'Failed to exchange token' });
+  }
+});
+
+app.post('/api/import-csv', (req: express.Request, res: express.Response) => {
+  const { csv, source } = req.body;
+  if (!csv) {
+    return res.status(400).json({ error: 'CSV content required' });
+  }
+  try {
+    const result = importAccountsFromCSV(csv);
+    if (result.success) {
+      console.log(`📥 Imported ${result.accountsAdded} accounts from ${source || 'CSV'}`);
+    }
+    res.json(result);
+  } catch (error: any) {
+    console.error('CSV import error:', error.message);
+    res.status(500).json({ success: false, accountsAdded: 0, errors: [error.message] });
   }
 });
 
