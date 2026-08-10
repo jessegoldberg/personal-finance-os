@@ -23,6 +23,9 @@ const plaidConfig = new Configuration({
 });
 const plaidClient = new PlaidApi(plaidConfig);
 
+// In-memory storage for linked accounts (TODO: move to database)
+let linkedAccounts: any[] = [];
+
 // Middleware
 app.use(express.json());
 
@@ -37,7 +40,7 @@ app.get('/health', (req: express.Request, res: express.Response) => {
 
 // API endpoints (stubs)
 app.get('/api/accounts', (req: express.Request, res: express.Response) => {
-  res.json({ accounts: [] });
+  res.json({ accounts: linkedAccounts });
 });
 
 app.get('/api/transactions', (req: express.Request, res: express.Response) => {
@@ -88,13 +91,29 @@ app.post('/api/plaid/exchange-token', async (req: express.Request, res: express.
     const accessToken = response.data.access_token;
     const itemId = response.data.item_id;
 
-    // TODO: Store accessToken + itemId in database
     console.log(`✅ Token exchanged successfully. ItemID: ${itemId}`);
+
+    // Fetch accounts from Plaid
+    const accountsResponse = await plaidClient.accountsGet({
+      access_token: accessToken,
+    });
+
+    const accounts = accountsResponse.data.accounts.map((acc: any) => ({
+      id: acc.account_id,
+      name: acc.name,
+      type: acc.subtype || acc.type,
+      balance: acc.balances.current || 0,
+      availableBalance: acc.balances.available || 0,
+    }));
+
+    console.log(`📊 Fetched ${accounts.length} accounts from Plaid`);
+    linkedAccounts = accounts;
 
     res.json({
       success: true,
       message: 'Account linked successfully',
-      itemId
+      itemId,
+      accounts
     });
   } catch (error: any) {
     console.error('Token exchange error:', error.message);
