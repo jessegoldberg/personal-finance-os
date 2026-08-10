@@ -2,6 +2,7 @@ import express = require('express');
 import path = require('path');
 import dotenv = require('dotenv');
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
+import { db_functions, Account } from './db';
 
 // Load environment variables
 dotenv.config();
@@ -23,9 +24,6 @@ const plaidConfig = new Configuration({
 });
 const plaidClient = new PlaidApi(plaidConfig);
 
-// In-memory storage for linked accounts (TODO: move to database)
-let linkedAccounts: any[] = [];
-
 // Middleware
 app.use(express.json());
 
@@ -38,9 +36,10 @@ app.get('/health', (req: express.Request, res: express.Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API endpoints (stubs)
+// API endpoints
 app.get('/api/accounts', (req: express.Request, res: express.Response) => {
-  res.json({ accounts: linkedAccounts });
+  const accounts = db_functions.getAllAccounts();
+  res.json({ accounts });
 });
 
 app.get('/api/transactions', (req: express.Request, res: express.Response) => {
@@ -98,16 +97,27 @@ app.post('/api/plaid/exchange-token', async (req: express.Request, res: express.
       access_token: accessToken,
     });
 
-    const accounts = accountsResponse.data.accounts.map((acc: any) => ({
+    const accounts: Account[] = accountsResponse.data.accounts.map((acc: any) => ({
       id: acc.account_id,
+      item_id: itemId,
+      account_id: acc.account_id,
       name: acc.name,
-      type: acc.subtype || acc.type,
-      balance: acc.balances.current || 0,
-      availableBalance: acc.balances.available || 0,
+      type: acc.type,
+      subtype: acc.subtype,
+      current_balance: acc.balances.current || 0,
+      available_balance: acc.balances.available || 0,
     }));
 
-    console.log(`📊 Fetched ${accounts.length} accounts from Plaid`);
-    linkedAccounts = accounts;
+    // Save linked item and accounts to database
+    db_functions.saveLinkedItem({
+      id: 'item_' + itemId,
+      item_id: itemId,
+      access_token: accessToken,
+      institution_name: null,
+    });
+    db_functions.saveAccounts(accounts);
+
+    console.log(`💾 Stored ${accounts.length} accounts in database`);
 
     res.json({
       success: true,
