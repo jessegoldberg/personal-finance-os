@@ -91,7 +91,7 @@ function App() {
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {accounts.map((acc: any) => (
               <li key={acc.id} style={{ padding: '10px', borderBottom: '1px solid #eee' }}>
-                <strong>{acc.name}</strong> - ${(acc.balance || 0).toFixed(2)}
+                <strong>{acc.name}</strong> - ${(acc.current_balance || 0).toFixed(2)}
               </li>
             ))}
           </ul>
