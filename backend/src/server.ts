@@ -106,7 +106,7 @@ app.post('/api/plaid/link-token', async (req: express.Request, res: express.Resp
       user: { client_user_id: 'user-' + Date.now() },
       client_name: 'Personal Finance OS',
       language: 'en',
-      products: [Products.Transactions, Products.Investments],
+      products: [Products.Transactions, Products.Investments, Products.Liabilities],
       country_codes: [CountryCode.Us],
       redirect_uri: process.env.PLAID_REDIRECT_URI || 'http://localhost:3000',
     });
@@ -154,6 +154,18 @@ app.post('/api/plaid/exchange-token', async (req: express.Request, res: express.
       available_balance: acc.balances.available || 0,
     }));
 
+    // Fetch liabilities (credit cards, loans) from Plaid
+    let liabilities: any[] = [];
+    try {
+      const liabilitiesResponse = await plaidClient.liabilitiesGet({
+        access_token: accessToken,
+      });
+      liabilities = liabilitiesResponse.data.liabilities || [];
+      console.log(`📊 Fetched ${liabilities.length} liabilities`);
+    } catch (liabErr: any) {
+      console.log('⚠️ Liabilities fetch skipped (not supported by this institution):', liabErr.message);
+    }
+
     // Save linked item and accounts to database
     db_functions.saveLinkedItem({
       id: 'item_' + itemId,
@@ -169,7 +181,8 @@ app.post('/api/plaid/exchange-token', async (req: express.Request, res: express.
       success: true,
       message: 'Account linked successfully',
       itemId,
-      accounts
+      accounts,
+      liabilities
     });
   } catch (error: any) {
     console.error('Token exchange error:', error.message);

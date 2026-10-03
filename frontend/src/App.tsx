@@ -8,6 +8,8 @@ function App() {
   const [income, setIncome] = useState<any>({ salary: 0, grants: 0, other: 0 })
   const [linkToken, setLinkToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [fetchedLiabilities, setFetchedLiabilities] = useState<any[]>([])
+  const [selectedLiabilities, setSelectedLiabilities] = useState<Set<string>>(new Set())
 
   // New debt form state
   const [newDebt, setNewDebt] = useState({
@@ -67,9 +69,16 @@ function App() {
           body: JSON.stringify({ publicToken })
         })
         if (res.ok) {
+          const data = await res.json()
           const accountRes = await fetch('/api/accounts')
-          const data = await accountRes.json()
-          setAccounts(data.accounts || [])
+          const accData = await accountRes.json()
+          setAccounts(accData.accounts || [])
+
+          // Display fetched liabilities if any
+          if (data.liabilities && data.liabilities.length > 0) {
+            setFetchedLiabilities(data.liabilities)
+            setSelectedLiabilities(new Set(data.liabilities.map((l: any, i: number) => i.toString())))
+          }
         }
       } catch (err) {
         console.error('Error exchanging token:', err)
@@ -119,6 +128,54 @@ function App() {
       alert('Income saved')
     } catch (err) {
       console.error('Error saving income:', err)
+    }
+  }
+
+  // Save selected liabilities as debts
+  const handleSaveLiabilities = async () => {
+    try {
+      for (const index of selectedLiabilities) {
+        const liability = fetchedLiabilities[parseInt(index)]
+        if (!liability) continue
+
+        const debtData = {
+          name: liability.credit_cards?.[0]?.account_owner || 'Credit Card',
+          balance: liability.credit_cards?.[0]?.balances?.current || 0,
+          interestRate: liability.credit_cards?.[0]?.aprs?.[0]?.apr_percentage || 0,
+          minPayment: liability.credit_cards?.[0]?.min_payment_amount || 0,
+          dueDate: liability.credit_cards?.[0]?.last_payment_amount_due_date || null
+        }
+
+        // Handle different liability types
+        if (liability.student_loans) {
+          const loan = liability.student_loans[0]
+          debtData.name = `Student Loan - ${loan.loan_name || 'Unnamed'}`
+          debtData.balance = loan.balances?.current || 0
+          debtData.interestRate = loan.interest_rate_percentage || 0
+          debtData.minPayment = loan.minimum_payment_amount || 0
+        } else if (liability.mortgages) {
+          const mortgage = liability.mortgages[0]
+          debtData.name = 'Mortgage'
+          debtData.balance = mortgage.balances?.current || 0
+          debtData.interestRate = mortgage.interest_rate_percentage || 0
+          debtData.minPayment = mortgage.minimum_payment_amount || 0
+        }
+
+        await fetch('/api/debts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(debtData)
+        })
+      }
+
+      const debtRes = await fetch('/api/debts')
+      const debtData = await debtRes.json()
+      setDebts(debtData.debts || debtData)
+      setFetchedLiabilities([])
+      setSelectedLiabilities(new Set())
+      alert('Debts saved!')
+    } catch (err) {
+      console.error('Error saving liabilities:', err)
     }
   }
 
@@ -189,6 +246,87 @@ function App() {
             }}
           >
             {loading ? 'Connecting...' : 'Add Another Account'}
+          </button>
+        </div>
+      )}
+
+      {fetchedLiabilities.length > 0 && (
+        <div style={{ marginTop: '30px', padding: '20px', backgroundColor: '#e3f2fd', borderRadius: '4px' }}>
+          <h2>💳 Found Liabilities</h2>
+          <p style={{ color: '#666' }}>We found {fetchedLiabilities.length} credit card(s)/loan(s). Select which ones to add as debts:</p>
+          <ul style={{ listStyle: 'none', padding: 0 }}>
+            {fetchedLiabilities.map((liability: any, idx: number) => {
+              const isCC = liability.credit_cards && liability.credit_cards.length > 0
+              const card = isCC ? liability.credit_cards[0] : null
+              const name = card?.account_owner || 'Credit Card'
+              const balance = card?.balances?.current || 0
+              const apr = card?.aprs?.[0]?.apr_percentage || 'N/A'
+              const minPay = card?.min_payment_amount || 0
+
+              return (
+                <li
+                  key={idx}
+                  style={{
+                    padding: '15px',
+                    borderBottom: '1px solid #bbb',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '15px'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedLiabilities.has(idx.toString())}
+                    onChange={(e) => {
+                      const newSet = new Set(selectedLiabilities)
+                      if (e.target.checked) {
+                        newSet.add(idx.toString())
+                      } else {
+                        newSet.delete(idx.toString())
+                      }
+                      setSelectedLiabilities(newSet)
+                    }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <strong>{name}</strong>
+                    <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                      Balance: ${balance.toFixed(2)} | APR: {apr}% | Min: ${minPay.toFixed(2)}
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          <button
+            onClick={handleSaveLiabilities}
+            style={{
+              marginTop: '15px',
+              padding: '10px 20px',
+              backgroundColor: '#4caf50',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            Save Selected Debts
+          </button>
+          <button
+            onClick={() => setFetchedLiabilities([])}
+            style={{
+              marginTop: '15px',
+              marginLeft: '10px',
+              padding: '10px 20px',
+              backgroundColor: '#999',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            Dismiss
           </button>
         </div>
       )}
