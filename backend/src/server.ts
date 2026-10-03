@@ -61,7 +61,7 @@ app.post('/api/plaid/link-token', async (req: express.Request, res: express.Resp
       user: { client_user_id: 'user-' + Date.now() },
       client_name: 'Personal Finance OS',
       language: 'en',
-      products: [Products.Auth, Products.Transactions],
+      products: [Products.Transactions, Products.Investments],
       country_codes: [CountryCode.Us],
       redirect_uri: process.env.PLAID_REDIRECT_URI || 'http://localhost:3000',
     });
