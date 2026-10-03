@@ -160,7 +160,7 @@ app.post('/api/plaid/exchange-token', async (req: express.Request, res: express.
       const liabilitiesResponse = await plaidClient.liabilitiesGet({
         access_token: accessToken,
       });
-      const liab = liabilitiesResponse.data.liabilities;
+      const liab = liabilitiesResponse.data.liabilities as any;
       if (liab) {
         if (liab.credit_cards) liabilities = liabilities.concat(liab.credit_cards);
         if (liab.student_loans) liabilities = liabilities.concat(liab.student_loans);
