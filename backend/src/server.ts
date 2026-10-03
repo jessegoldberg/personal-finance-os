@@ -160,7 +160,12 @@ app.post('/api/plaid/exchange-token', async (req: express.Request, res: express.
       const liabilitiesResponse = await plaidClient.liabilitiesGet({
         access_token: accessToken,
       });
-      liabilities = liabilitiesResponse.data.liabilities || [];
+      const liab = liabilitiesResponse.data.liabilities;
+      if (liab) {
+        if (liab.credit_cards) liabilities = liabilities.concat(liab.credit_cards);
+        if (liab.student_loans) liabilities = liabilities.concat(liab.student_loans);
+        if (liab.mortgages) liabilities = liabilities.concat(liab.mortgages);
+      }
       console.log(`📊 Fetched ${liabilities.length} liabilities`);
     } catch (liabErr: any) {
       console.log('⚠️ Liabilities fetch skipped (not supported by this institution):', liabErr.message);
