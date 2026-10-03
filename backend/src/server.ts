@@ -48,11 +48,56 @@ app.get('/api/transactions', (req: express.Request, res: express.Response) => {
 });
 
 app.get('/api/debts', (req: express.Request, res: express.Response) => {
-  res.json({ debts: [] });
+  try {
+    const debts = db_functions.getAllDebts();
+    res.json(debts);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch debts' });
+  }
 });
 
 app.post('/api/debts', (req: express.Request, res: express.Response) => {
-  res.status(201).json({ id: 'debt_1', message: 'Debt created (stub)' });
+  const { name, balance, interestRate, minPayment, dueDate } = req.body;
+  if (!name || balance === undefined || interestRate === undefined) {
+    return res.status(400).json({ error: 'name, balance, and interestRate required' });
+  }
+  try {
+    const debt = {
+      id: 'debt_' + Date.now(),
+      name,
+      balance: parseFloat(balance),
+      interest_rate: parseFloat(interestRate),
+      min_payment: parseFloat(minPayment) || 0,
+      due_date: dueDate || null
+    };
+    db_functions.saveDebt(debt);
+    res.status(201).json(debt);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create debt' });
+  }
+});
+
+app.get('/api/income', (req: express.Request, res: express.Response) => {
+  try {
+    const income = db_functions.getIncome();
+    res.json(income);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch income' });
+  }
+});
+
+app.post('/api/income', (req: express.Request, res: express.Response) => {
+  const { salary, grants, other } = req.body;
+  try {
+    db_functions.saveIncome({
+      salary: parseFloat(salary) || 0,
+      grants: parseFloat(grants) || 0,
+      other: parseFloat(other) || 0
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save income' });
+  }
 });
 
 app.post('/api/plaid/link-token', async (req: express.Request, res: express.Response) => {

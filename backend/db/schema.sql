@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS debts (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Monthly income tracking
+CREATE TABLE IF NOT EXISTS income (
+  id TEXT PRIMARY KEY,
+  salary REAL DEFAULT 0,
+  grants REAL DEFAULT 0,
+  other REAL DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Claude analysis recommendations
 CREATE TABLE IF NOT EXISTS recommendations (
   id TEXT PRIMARY KEY,

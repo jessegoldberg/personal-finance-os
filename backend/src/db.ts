@@ -94,4 +94,33 @@ export const db_functions = {
     const stmt = db.prepare('SELECT * FROM accounts ORDER BY name');
     return stmt.all() as Account[];
   },
+
+  // Debts
+  saveDebt: (debt: any) => {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO debts (id, name, balance, interest_rate, min_payment, due_date)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(debt.id, debt.name, debt.balance, debt.interest_rate, debt.min_payment, debt.due_date);
+  },
+
+  getAllDebts: (): any[] => {
+    const stmt = db.prepare('SELECT * FROM debts ORDER BY name');
+    return stmt.all() as any[];
+  },
+
+  // Income
+  saveIncome: (income: any) => {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO income (id, salary, grants, other)
+      VALUES (?, ?, ?, ?)
+    `);
+    stmt.run('default', income.salary, income.grants, income.other);
+  },
+
+  getIncome: (): any => {
+    const stmt = db.prepare('SELECT * FROM income WHERE id = ?');
+    const result = stmt.get('default') as any;
+    return result || { salary: 0, grants: 0, other: 0 };
+  },
 };
