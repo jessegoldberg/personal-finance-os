@@ -1,84 +1,104 @@
--- Linked Plaid items (banks/institutions)
-CREATE TABLE IF NOT EXISTS linked_items (
-  id TEXT PRIMARY KEY,
-  item_id TEXT UNIQUE NOT NULL,
+CREATE TABLE IF NOT EXISTS items (
+  item_id TEXT PRIMARY KEY,
   access_token TEXT NOT NULL,
+  institution_id TEXT,
   institution_name TEXT,
-  linked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  products TEXT,
+  tx_cursor TEXT,
+  status TEXT DEFAULT 'ok',
+  error TEXT,
+  last_synced_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- Bank accounts linked via Plaid
 CREATE TABLE IF NOT EXISTS accounts (
-  id TEXT PRIMARY KEY,
-  item_id TEXT NOT NULL,
-  account_id TEXT NOT NULL,
+  account_id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL REFERENCES items(item_id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  official_name TEXT,
+  mask TEXT,
   type TEXT,
   subtype TEXT,
   current_balance REAL,
   available_balance REAL,
-  last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (item_id) REFERENCES linked_items(item_id),
-  UNIQUE(item_id, account_id)
+  credit_limit REAL,
+  hidden INTEGER DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- Transactions (to be synced from Plaid)
 CREATE TABLE IF NOT EXISTS transactions (
-  id TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL,
+  transaction_id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
   item_id TEXT NOT NULL,
   amount REAL NOT NULL,
-  date DATE NOT NULL,
+  date TEXT NOT NULL,
+  name TEXT,
   merchant_name TEXT,
   category TEXT,
-  pending BOOLEAN DEFAULT 0,
-  synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (account_id) REFERENCES accounts(id),
-  FOREIGN KEY (item_id) REFERENCES linked_items(item_id)
+  detailed_category TEXT,
+  pending INTEGER DEFAULT 0,
+  logo_url TEXT,
+  payment_channel TEXT
 );
 
--- Debts (manual entry or from Plaid liabilities)
+CREATE TABLE IF NOT EXISTS recurring_streams (
+  stream_id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL REFERENCES items(item_id) ON DELETE CASCADE,
+  account_id TEXT,
+  direction TEXT NOT NULL,
+  description TEXT,
+  merchant_name TEXT,
+  category TEXT,
+  frequency TEXT,
+  average_amount REAL,
+  last_amount REAL,
+  last_date TEXT,
+  predicted_next_date TEXT,
+  is_active INTEGER,
+  status TEXT
+);
+
 CREATE TABLE IF NOT EXISTS debts (
   id TEXT PRIMARY KEY,
+  account_id TEXT UNIQUE REFERENCES accounts(account_id) ON DELETE CASCADE,
+  source TEXT NOT NULL DEFAULT 'manual',
   name TEXT NOT NULL,
-  balance REAL NOT NULL,
-  interest_rate REAL,
+  kind TEXT DEFAULT 'credit',
+  balance REAL NOT NULL DEFAULT 0,
+  apr REAL,
   min_payment REAL,
-  due_date TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  next_due_date TEXT,
+  statement_balance REAL,
+  credit_limit REAL,
+  is_overdue INTEGER DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- Monthly income tracking
-CREATE TABLE IF NOT EXISTS income (
+CREATE TABLE IF NOT EXISTS income_sources (
   id TEXT PRIMARY KEY,
-  salary REAL DEFAULT 0,
-  grants REAL DEFAULT 0,
-  other REAL DEFAULT 0,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'salary',
+  monthly_amount REAL NOT NULL DEFAULT 0,
+  taxes_withheld INTEGER DEFAULT 1,
+  notes TEXT
 );
 
--- Claude analysis recommendations
-CREATE TABLE IF NOT EXISTS recommendations (
-  id TEXT PRIMARY KEY,
-  analysis_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-  recommendation_text TEXT NOT NULL,
-  priority INTEGER,
-  monthly_action TEXT
+CREATE TABLE IF NOT EXISTS budgets (
+  category TEXT PRIMARY KEY,
+  monthly_limit REAL NOT NULL
 );
 
--- Payment log (track user actions)
-CREATE TABLE IF NOT EXISTS payment_logs (
-  id TEXT PRIMARY KEY,
-  debt_id TEXT,
-  amount REAL NOT NULL,
-  date DATE NOT NULL,
-  notes TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (debt_id) REFERENCES debts(id)
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
 );
 
--- Create indexes for common queries
-CREATE INDEX IF NOT EXISTS idx_accounts_item_id ON accounts(item_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_account_id ON transactions(account_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
+CREATE TABLE IF NOT EXISTS ai_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  report TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date);
+CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(account_id);
+CREATE INDEX IF NOT EXISTS idx_accounts_item ON accounts(item_id);

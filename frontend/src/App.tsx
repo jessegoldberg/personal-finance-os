@@ -1,448 +1,120 @@
-import { useState, useEffect } from 'react'
-import { usePlaidLink } from 'react-plaid-link'
+import { useEffect, useState } from 'react';
+import { LayoutDashboard, Receipt, PieChart, TrendingDown, Wallet, Sparkles, Landmark, RefreshCw, Menu, X } from 'lucide-react';
+import { api } from './lib/api';
+import { relativeTime } from './lib/format';
+import { Spinner } from './components/ui';
+import { PlaidOAuthResume } from './components/PlaidLink';
+import Dashboard from './pages/Dashboard';
+import Transactions from './pages/Transactions';
+import Spending from './pages/Spending';
+import Debts from './pages/Debts';
+import Income from './pages/Income';
+import Advisor from './pages/Advisor';
+import Accounts from './pages/Accounts';
 
-function App() {
-  const [health, setHealth] = useState<string>('Loading...')
-  const [accounts, setAccounts] = useState<any[]>([])
-  const [debts, setDebts] = useState<any[]>([])
-  const [income, setIncome] = useState<any>({ salary: 0, grants: 0, other: 0 })
-  const [linkToken, setLinkToken] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [fetchedLiabilities, setFetchedLiabilities] = useState<any[]>([])
-  const [selectedLiabilities, setSelectedLiabilities] = useState<Set<string>>(new Set())
+const PAGES = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, Component: Dashboard },
+  { id: 'advisor', label: 'AI Advisor', icon: Sparkles, Component: Advisor },
+  { id: 'debt', label: 'Debt Plan', icon: TrendingDown, Component: Debts },
+  { id: 'spending', label: 'Spending & Budgets', icon: PieChart, Component: Spending },
+  { id: 'transactions', label: 'Transactions', icon: Receipt, Component: Transactions },
+  { id: 'income', label: 'Income', icon: Wallet, Component: Income },
+  { id: 'accounts', label: 'Accounts', icon: Landmark, Component: Accounts },
+] as const;
 
-  // New debt form state
-  const [newDebt, setNewDebt] = useState({
-    name: '',
-    balance: '',
-    interestRate: '',
-    minPayment: '',
-    dueDate: ''
-  })
+export type PageId = typeof PAGES[number]['id'];
+export const navigate = (id: PageId) => { window.location.hash = `/${id}`; };
 
-  // Fetch link token
+const currentPage = () => (PAGES.find(p => `#/${p.id}` === window.location.hash)?.id ?? 'overview') as PageId;
+
+export default function App() {
+  const [page, setPage] = useState<PageId>(currentPage);
+  const [version, setVersion] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
   useEffect(() => {
-    const fetchLinkToken = async () => {
-      try {
-        const res = await fetch('/api/plaid/link-token', { method: 'POST' })
-        const data = await res.json()
-        setLinkToken(data.linkToken)
-      } catch (err) {
-        console.error('Error fetching link token:', err)
-      }
-    }
-    fetchLinkToken()
-  }, [])
+    const onHash = () => { setPage(currentPage()); setMenuOpen(false); window.scrollTo(0, 0); };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
-  // Load accounts, debts, income on mount
   useEffect(() => {
-    fetch('/api/health')
-      .then(r => r.json())
-      .then(() => setHealth('✅ Backend is running'))
-      .catch(() => setHealth('❌ Backend unavailable'))
+    api<{ t: string | null }[]>('/api/items').then(items => {
+      const latest = items.map((i: any) => i.last_synced_at).filter(Boolean).sort().pop();
+      setLastSynced(latest ?? null);
+    }).catch(() => {});
+  }, [version]);
 
-    fetch('/api/accounts')
-      .then(r => r.json())
-      .then(data => setAccounts(data.accounts || []))
-      .catch(err => console.error('Error loading accounts:', err))
+  const refresh = () => setVersion(v => v + 1);
+  const sync = async () => {
+    setSyncing(true);
+    try { await api('/api/sync', { body: {} }); } finally { setSyncing(false); refresh(); }
+  };
 
-    fetch('/api/debts')
-      .then(r => r.json())
-      .then(data => setDebts(data.debts || []))
-      .catch(err => console.error('Error loading debts:', err))
+  const Active = PAGES.find(p => p.id === page)!.Component;
 
-    fetch('/api/income')
-      .then(r => r.json())
-      .then(data => setIncome(data || {}))
-      .catch(err => console.error('Error loading income:', err))
-  }, [])
+  const nav = (
+    <nav className="flex flex-col gap-0.5">
+      {PAGES.map(p => (
+        <a key={p.id} href={`#/${p.id}`}
+          className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
+            page === p.id ? 'bg-white/[0.07] text-white' : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200'}`}>
+          <p.icon className={`h-4 w-4 ${page === p.id ? 'text-emerald-400' : ''}`} />
+          {p.label}
+        </a>
+      ))}
+    </nav>
+  );
 
-  // Plaid Link handler
-  const { open, ready } = usePlaidLink({
-    token: linkToken,
-    onSuccess: async (publicToken: string) => {
-      setLoading(true)
-      try {
-        const res = await fetch('/api/plaid/exchange-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ publicToken })
-        })
-        if (res.ok) {
-          const data = await res.json()
-          const accountRes = await fetch('/api/accounts')
-          const accData = await accountRes.json()
-          setAccounts(accData.accounts || [])
-
-          // Display fetched liabilities if any
-          if (data.liabilities && data.liabilities.length > 0) {
-            setFetchedLiabilities(data.liabilities)
-            setSelectedLiabilities(new Set(data.liabilities.map((l: any, i: number) => i.toString())))
-          }
-        }
-      } catch (err) {
-        console.error('Error exchanging token:', err)
-      } finally {
-        setLoading(false)
-      }
-    },
-    onExit: () => console.log('Plaid Link closed')
-  })
-
-  // Add debt
-  const handleAddDebt = async () => {
-    if (!newDebt.name || !newDebt.balance || !newDebt.interestRate) {
-      alert('Fill in name, balance, and interest rate')
-      return
-    }
-    try {
-      const res = await fetch('/api/debts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newDebt.name,
-          balance: parseFloat(newDebt.balance),
-          interestRate: parseFloat(newDebt.interestRate),
-          minPayment: parseFloat(newDebt.minPayment) || 0,
-          dueDate: newDebt.dueDate
-        })
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setDebts([...debts, data])
-        setNewDebt({ name: '', balance: '', interestRate: '', minPayment: '', dueDate: '' })
-      }
-    } catch (err) {
-      console.error('Error adding debt:', err)
-    }
-  }
-
-  // Save income
-  const handleSaveIncome = async () => {
-    try {
-      await fetch('/api/income', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(income)
-      })
-      alert('Income saved')
-    } catch (err) {
-      console.error('Error saving income:', err)
-    }
-  }
-
-  // Save selected liabilities as debts
-  const handleSaveLiabilities = async () => {
-    try {
-      for (const index of selectedLiabilities) {
-        const liability = fetchedLiabilities[parseInt(index)]
-        if (!liability) continue
-
-        const debtData = {
-          name: liability.credit_cards?.[0]?.account_owner || 'Credit Card',
-          balance: liability.credit_cards?.[0]?.balances?.current || 0,
-          interestRate: liability.credit_cards?.[0]?.aprs?.[0]?.apr_percentage || 0,
-          minPayment: liability.credit_cards?.[0]?.min_payment_amount || 0,
-          dueDate: liability.credit_cards?.[0]?.last_payment_amount_due_date || null
-        }
-
-        // Handle different liability types
-        if (liability.student_loans) {
-          const loan = liability.student_loans[0]
-          debtData.name = `Student Loan - ${loan.loan_name || 'Unnamed'}`
-          debtData.balance = loan.balances?.current || 0
-          debtData.interestRate = loan.interest_rate_percentage || 0
-          debtData.minPayment = loan.minimum_payment_amount || 0
-        } else if (liability.mortgages) {
-          const mortgage = liability.mortgages[0]
-          debtData.name = 'Mortgage'
-          debtData.balance = mortgage.balances?.current || 0
-          debtData.interestRate = mortgage.interest_rate_percentage || 0
-          debtData.minPayment = mortgage.minimum_payment_amount || 0
-        }
-
-        await fetch('/api/debts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(debtData)
-        })
-      }
-
-      const debtRes = await fetch('/api/debts')
-      const debtData = await debtRes.json()
-      setDebts(debtData.debts || debtData)
-      setFetchedLiabilities([])
-      setSelectedLiabilities(new Set())
-      alert('Debts saved!')
-    } catch (err) {
-      console.error('Error saving liabilities:', err)
-    }
-  }
-
-  const totalAccountBalance = accounts.reduce((sum, acc) => sum + (acc.current_balance || 0), 0)
-  const totalDebt = debts.reduce((sum, debt) => sum + (debt.balance || 0), 0)
-  const monthlyIncome = (income.salary || 0) + (income.grants || 0) + (income.other || 0)
-
-  return (
-    <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '900px' }}>
-      <h1>💰 Personal Finance OS</h1>
-      <p>Backend Status: {health}</p>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', marginBottom: '30px' }}>
-        <div style={{ padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '4px' }}>
-          <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#666' }}>Total Assets</p>
-          <p style={{ margin: 0, fontSize: '24px', fontWeight: 'bold' }}>${totalAccountBalance.toFixed(2)}</p>
-        </div>
-        <div style={{ padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '4px' }}>
-          <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#666' }}>Total Debt</p>
-          <p style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#d32f2f' }}>${totalDebt.toFixed(2)}</p>
-        </div>
-        <div style={{ padding: '15px', backgroundColor: '#f0f0f0', borderRadius: '4px' }}>
-          <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#666' }}>Monthly Income</p>
-          <p style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#388e3c' }}>${monthlyIncome.toFixed(2)}</p>
-        </div>
-      </div>
-
-      <h2>Accounts (Plaid)</h2>
-      {accounts.length === 0 ? (
-        <div>
-          <p>No accounts linked yet.</p>
-          <button
-            onClick={() => open()}
-            disabled={!ready || loading}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#0066cc',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: ready && !loading ? 'pointer' : 'not-allowed',
-              opacity: ready && !loading ? 1 : 0.5
-            }}
-          >
-            {loading ? 'Connecting...' : 'Connect Bank Account'}
-          </button>
-        </div>
-      ) : (
-        <div>
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {accounts.map((acc: any) => (
-              <li key={acc.id} style={{ padding: '10px', borderBottom: '1px solid #eee' }}>
-                <strong>{acc.name}</strong> <span style={{ fontSize: '12px', color: '#666' }}>({acc.type})</span> - ${(acc.current_balance || 0).toFixed(2)}
-              </li>
-            ))}
-          </ul>
-          <button
-            onClick={() => open()}
-            disabled={!ready || loading}
-            style={{
-              marginTop: '15px',
-              padding: '10px 20px',
-              backgroundColor: '#0066cc',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: ready && !loading ? 'pointer' : 'not-allowed'
-            }}
-          >
-            {loading ? 'Connecting...' : 'Add Another Account'}
-          </button>
-        </div>
-      )}
-
-      {fetchedLiabilities.length > 0 && (
-        <div style={{ marginTop: '30px', padding: '20px', backgroundColor: '#e3f2fd', borderRadius: '4px' }}>
-          <h2>💳 Found Liabilities</h2>
-          <p style={{ color: '#666' }}>We found {fetchedLiabilities.length} credit card(s)/loan(s). Select which ones to add as debts:</p>
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {fetchedLiabilities.map((liability: any, idx: number) => {
-              const isCC = liability.credit_cards && liability.credit_cards.length > 0
-              const card = isCC ? liability.credit_cards[0] : null
-              const name = card?.account_owner || 'Credit Card'
-              const balance = card?.balances?.current || 0
-              const apr = card?.aprs?.[0]?.apr_percentage || 'N/A'
-              const minPay = card?.min_payment_amount || 0
-
-              return (
-                <li
-                  key={idx}
-                  style={{
-                    padding: '15px',
-                    borderBottom: '1px solid #bbb',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '15px'
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedLiabilities.has(idx.toString())}
-                    onChange={(e) => {
-                      const newSet = new Set(selectedLiabilities)
-                      if (e.target.checked) {
-                        newSet.add(idx.toString())
-                      } else {
-                        newSet.delete(idx.toString())
-                      }
-                      setSelectedLiabilities(newSet)
-                    }}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <strong>{name}</strong>
-                    <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                      Balance: ${balance.toFixed(2)} | APR: {apr}% | Min: ${minPay.toFixed(2)}
-                    </div>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-          <button
-            onClick={handleSaveLiabilities}
-            style={{
-              marginTop: '15px',
-              padding: '10px 20px',
-              backgroundColor: '#4caf50',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            Save Selected Debts
-          </button>
-          <button
-            onClick={() => setFetchedLiabilities([])}
-            style={{
-              marginTop: '15px',
-              marginLeft: '10px',
-              padding: '10px 20px',
-              backgroundColor: '#999',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      <h2 style={{ marginTop: '30px' }}>Debts</h2>
-      <div style={{ marginBottom: '20px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px', marginBottom: '10px' }}>
-          <input
-            placeholder="Name (e.g., Chase Card)"
-            value={newDebt.name}
-            onChange={(e) => setNewDebt({ ...newDebt, name: e.target.value })}
-            style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px' }}
-          />
-          <input
-            type="number"
-            placeholder="Balance"
-            value={newDebt.balance}
-            onChange={(e) => setNewDebt({ ...newDebt, balance: e.target.value })}
-            style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px' }}
-          />
-          <input
-            type="number"
-            placeholder="Interest Rate (%)"
-            step="0.01"
-            value={newDebt.interestRate}
-            onChange={(e) => setNewDebt({ ...newDebt, interestRate: e.target.value })}
-            style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px' }}
-          />
-          <input
-            type="number"
-            placeholder="Min Payment"
-            value={newDebt.minPayment}
-            onChange={(e) => setNewDebt({ ...newDebt, minPayment: e.target.value })}
-            style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px' }}
-          />
-          <input
-            type="text"
-            placeholder="Due Date (e.g., 15)"
-            value={newDebt.dueDate}
-            onChange={(e) => setNewDebt({ ...newDebt, dueDate: e.target.value })}
-            style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px' }}
-          />
-        </div>
-        <button
-          onClick={handleAddDebt}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#388e3c',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px'
-          }}
-        >
-          Add Debt
-        </button>
-      </div>
-
-      {debts.length > 0 && (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {debts.map((debt: any) => (
-            <li key={debt.id} style={{ padding: '10px', borderBottom: '1px solid #eee' }}>
-              <strong>{debt.name}</strong> - Balance: ${debt.balance.toFixed(2)} | Rate: {debt.interestRate}% | Min: ${debt.minPayment || 0}
-              {debt.dueDate && <span style={{ fontSize: '12px', color: '#666' }}> | Due: {debt.dueDate}</span>}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <h2 style={{ marginTop: '30px' }}>Monthly Income</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '10px' }}>
-        <div>
-          <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', color: '#666' }}>Salary</label>
-          <input
-            type="number"
-            value={income.salary || 0}
-            onChange={(e) => setIncome({ ...income, salary: parseFloat(e.target.value) || 0 })}
-            style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-          />
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', color: '#666' }}>Grants/Other</label>
-          <input
-            type="number"
-            value={income.grants || 0}
-            onChange={(e) => setIncome({ ...income, grants: parseFloat(e.target.value) || 0 })}
-            style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-          />
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '12px', marginBottom: '5px', color: '#666' }}>Other Income</label>
-          <input
-            type="number"
-            value={income.other || 0}
-            onChange={(e) => setIncome({ ...income, other: parseFloat(e.target.value) || 0 })}
-            style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-          />
-        </div>
-      </div>
-      <button
-        onClick={handleSaveIncome}
-        style={{
-          padding: '10px 20px',
-          backgroundColor: '#0066cc',
-          color: 'white',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '14px'
-        }}
-      >
-        Save Income
+  const syncBox = (
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+      <p className="text-xs text-slate-500">Last synced {relativeTime(lastSynced)}</p>
+      <button className="btn-secondary mt-2 w-full" onClick={sync} disabled={syncing}>
+        {syncing ? <Spinner /> : <RefreshCw className="h-4 w-4" />} {syncing ? 'Syncing…' : 'Sync now'}
       </button>
     </div>
-  )
+  );
+
+  const brand = (
+    <div className="flex items-center gap-2.5 px-2">
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 text-ink-950">
+        <TrendingDown className="h-4 w-4 -scale-y-100" strokeWidth={2.5} />
+      </div>
+      <div>
+        <div className="text-sm font-semibold text-white">Family Finance</div>
+        <div className="text-[11px] text-slate-500">Debt-free plan</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-full">
+      <PlaidOAuthResume onLinked={refresh} />
+
+      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col justify-between border-r border-white/[0.06] bg-ink-950 p-4 lg:flex">
+        <div className="space-y-6">{brand}{nav}</div>
+        {syncBox}
+      </aside>
+
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/[0.06] bg-ink-950/90 px-4 py-3 backdrop-blur lg:hidden">
+        {brand}
+        <button className="btn-ghost" onClick={() => setMenuOpen(o => !o)} aria-label="Menu">
+          {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </header>
+      {menuOpen && (
+        <div className="fixed inset-x-0 top-[57px] z-20 space-y-4 border-b border-white/[0.06] bg-ink-950 p-4 lg:hidden">{nav}{syncBox}</div>
+      )}
+
+      <main className="px-4 py-6 sm:px-8 lg:ml-60 lg:py-8">
+        <div className="mx-auto max-w-7xl">
+          <Active key={version} onDataChanged={refresh} />
+        </div>
+      </main>
+    </div>
+  );
 }
 
-export default App
+export interface PageProps { onDataChanged: () => void }
