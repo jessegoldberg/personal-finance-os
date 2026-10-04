@@ -66,7 +66,7 @@ export default function Dashboard({ onDataChanged }: PageProps) {
           hint={`${money(o.cash)} cash · ${money(o.investments)} invested`} />
         <Stat label="Total debt" value={money(o.totalDebt)} icon={TrendingDown} tone="bad" hint={`~${money(o.monthlyInterest)}/mo in interest`} />
         <Stat label="Monthly income" value={money(o.monthlyIncome)} icon={Wallet}
-          hint={o.monthlyIncome ? 'From your income sources' : <a href="#/income" className="text-emerald-400">Add income →</a>} />
+          hint={o.incomeSource === 'entered' ? 'From your income sources' : o.incomeSource === 'detected' ? <a href="#/income" className="text-amber-400">Estimated from deposits — confirm →</a> : <a href="#/income" className="text-emerald-400">Add income →</a>} />
         <Stat label="Avg spending" value={money(o.avgMonthlySpending)} icon={ShoppingBag} hint={`${money(o.monthSpending)} so far this month`} />
         <Stat label="Monthly surplus" value={money(o.surplus)} icon={PiggyBank} tone={o.surplus >= 0 ? 'good' : 'bad'}
           hint={`After ${money(o.minPayments)} in minimums`} />

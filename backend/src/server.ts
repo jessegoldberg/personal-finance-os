@@ -5,12 +5,13 @@ dotenv.config();
 
 import { db, getSetting, setSetting } from './db';
 import { createLinkToken, exchangePublicToken, removeItem, syncAll, syncItem, plaidErrorMessage } from './plaid';
-import { getOverview, getSpending, getRecurring, simulatePayoff, monthlyEquivalent } from './analytics';
+import { getOverview, getSpending, getRecurring, simulatePayoff, monthlyEquivalent, detectDeposits } from './analytics';
+import { parseStatement, importStatement, setManualBalance } from './importer';
 import { generateReport, latestReport, chat } from './advisor';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '15mb' }));
 
 type Handler = (req: express.Request, res: express.Response) => any;
 const route = (fn: Handler): express.RequestHandler => async (req, res) => {
@@ -53,9 +54,69 @@ app.delete('/api/items/:id', route(async req => { await removeItem(req.params.id
 app.get('/api/accounts', route(() => db.prepare(`SELECT a.*, i.institution_name FROM accounts a JOIN items i USING(item_id)
   ORDER BY CASE a.type WHEN 'depository' THEN 0 WHEN 'credit' THEN 1 WHEN 'loan' THEN 2 ELSE 3 END, a.name`).all()));
 
+const manualAccount = (id: string) => {
+  const a = db.prepare("SELECT * FROM accounts WHERE account_id = ? AND item_id = 'manual'").get(id);
+  if (!a) throw Object.assign(new Error('Only manually tracked accounts can be changed this way'), { status: 400 });
+  return a;
+};
+
 app.patch('/api/accounts/:id', route(req => {
-  db.prepare('UPDATE accounts SET hidden = ? WHERE account_id = ?').run(req.body?.hidden ? 1 : 0, req.params.id);
+  const b = req.body ?? {};
+  if (b.hidden !== undefined) db.prepare('UPDATE accounts SET hidden = ? WHERE account_id = ?').run(b.hidden ? 1 : 0, req.params.id);
+  if (b.name !== undefined || b.current_balance !== undefined || b.credit_limit !== undefined) {
+    const a = manualAccount(req.params.id);
+    db.prepare("UPDATE accounts SET name = ?, credit_limit = ?, updated_at = datetime('now') WHERE account_id = ?")
+      .run(b.name || a.name, b.credit_limit !== undefined ? num(b.credit_limit) : a.credit_limit, a.account_id);
+    db.prepare('UPDATE debts SET credit_limit = ? WHERE account_id = ?').run(b.credit_limit !== undefined ? num(b.credit_limit) : a.credit_limit, a.account_id);
+    if (num(b.current_balance) !== null) setManualBalance(a.account_id, num(b.current_balance)!);
+  }
   return { ok: true };
+}));
+
+// Accounts Plaid can't reach (Apple Card, some lenders). Credit/loan accounts get a debt row, or adopt an existing manual one.
+app.post('/api/manual-accounts', route(req => {
+  const b = req.body ?? {};
+  if (!b.name || !['depository', 'credit', 'loan'].includes(b.type)) throw Object.assign(new Error('name and type (depository, credit, loan) required'), { status: 400 });
+  const id = newId('man');
+  const existingDebt = b.debtId ? db.prepare("SELECT * FROM debts WHERE id = ? AND account_id IS NULL").get(b.debtId) : null;
+  const balance = num(b.balance) ?? existingDebt?.balance ?? 0;
+  db.transaction(() => {
+    db.prepare(`INSERT INTO accounts (account_id, item_id, name, mask, type, subtype, current_balance, credit_limit) VALUES (?, 'manual', ?, ?, ?, ?, ?, ?)`)
+      .run(id, b.name, b.mask || null, b.type, b.subtype || (b.type === 'credit' ? 'credit card' : null), balance, num(b.credit_limit));
+    if (b.type !== 'depository') {
+      if (existingDebt) {
+        db.prepare('UPDATE debts SET account_id = ?, balance = ?, credit_limit = COALESCE(?, credit_limit) WHERE id = ?').run(id, Math.abs(balance), num(b.credit_limit), existingDebt.id);
+      } else {
+        db.prepare(`INSERT INTO debts (id, account_id, source, name, kind, balance, apr, min_payment, credit_limit) VALUES (?, ?, 'manual', ?, ?, ?, ?, ?, ?)`)
+          .run(newId('debt'), id, b.name, b.type === 'credit' ? 'credit' : (b.subtype || 'loan'), Math.abs(balance), num(b.apr), num(b.min_payment), num(b.credit_limit));
+      }
+    }
+  })();
+  return db.prepare('SELECT * FROM accounts WHERE account_id = ?').get(id);
+}));
+
+app.delete('/api/accounts/:id', route(req => {
+  const a = manualAccount(req.params.id);
+  db.transaction(() => {
+    db.prepare('UPDATE debts SET account_id = NULL WHERE account_id = ?').run(a.account_id);
+    db.prepare('DELETE FROM accounts WHERE account_id = ?').run(a.account_id);
+  })();
+  return { ok: true };
+}));
+
+app.post('/api/import/:accountId', route(req => {
+  const a = manualAccount(req.params.accountId);
+  const { content, filename, flip, dryRun } = req.body ?? {};
+  if (!content) throw Object.assign(new Error('File content required'), { status: 400 });
+  const parsed = parseStatement(String(content), String(filename || ''), a.type, !!flip);
+  const dates = parsed.rows.map(r => r.date).sort();
+  const summary = {
+    format: parsed.format, count: parsed.rows.length, from: dates[0], to: dates[dates.length - 1], balance: parsed.balance, flipped: parsed.flipped,
+    spending: parsed.rows.filter(r => r.amount > 0 && r.category !== 'LOAN_PAYMENTS').reduce((s, r) => s + r.amount, 0),
+    payments: parsed.rows.filter(r => r.category === 'LOAN_PAYMENTS').reduce((s, r) => s + Math.abs(r.amount), 0),
+    sample: parsed.rows.slice(0, 8),
+  };
+  return dryRun ? summary : { ...summary, ...importStatement(a.account_id, parsed) };
 }));
 
 app.get('/api/transactions', route(req => {
@@ -107,6 +168,7 @@ app.put('/api/debts/:id', route(req => {
   db.prepare(`UPDATE debts SET name = ?, kind = ?, balance = ?, apr = ?, min_payment = ?, next_due_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
     .run(b.name ?? existing.name, b.kind ?? existing.kind, existing.source === 'plaid' ? existing.balance : (num(b.balance) ?? existing.balance),
       num(b.apr), num(b.min_payment), b.next_due_date || null, req.params.id);
+  if (existing.source === 'manual' && existing.account_id && num(b.balance) !== null) setManualBalance(existing.account_id, num(b.balance)!);
   return db.prepare('SELECT * FROM debts WHERE id = ?').get(req.params.id);
 }));
 
@@ -115,9 +177,7 @@ app.delete('/api/debts/:id', route(req => { db.prepare("DELETE FROM debts WHERE 
 // ---- Income ----
 app.get('/api/income', route(() => ({
   sources: db.prepare('SELECT * FROM income_sources ORDER BY monthly_amount DESC').all(),
-  detected: db.prepare(`SELECT r.*, a.name AS account_name, a.mask FROM recurring_streams r LEFT JOIN accounts a USING(account_id)
-    WHERE r.direction = 'inflow' AND r.is_active = 1 ORDER BY r.average_amount DESC`).all()
-    .map((r: any) => ({ ...r, monthly: monthlyEquivalent(r.average_amount, r.frequency) })),
+  detected: detectDeposits(),
   notes: getSetting('household_notes') ?? '',
 })));
 

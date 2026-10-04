@@ -57,6 +57,8 @@ How to advise:
 - Account for taxes on income that has no withholding (e.g. side gigs or grants) — recommend setting a percentage aside if the household notes don't already cover it.
 - Spending cuts must reference real merchants/categories in the data with realistic targets, prioritising subscriptions and discretionary categories over essentials.
 - Budget suggestions must use the Plaid category codes exactly as provided.
+- Income: use income_sources when present. When income_basis is "detected", the repeat deposits ARE the household's income — build the plan on them (paychecks, side-gig payouts, grants) rather than saying income is unknown; mention which deposits you counted.
+- Some accounts are tracked manually from statement imports (manually_tracked_accounts); note if their last_updated is more than ~35 days old.
 - If data is thin (few transactions, missing APRs, no income entered), say so in missing_data and give the best plan possible with what exists.
 - Order action_plan chronologically, starting from today's date in the snapshot.`;
 

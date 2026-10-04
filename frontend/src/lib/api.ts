@@ -11,7 +11,7 @@ export async function api<T = any>(path: string, init?: { method?: string; body?
 
 export interface Overview {
   netWorth: number; cash: number; investments: number; totalDebt: number; minPayments: number; monthlyInterest: number;
-  monthlyIncome: number; avgMonthlySpending: number; monthSpending: number; surplus: number;
+  monthlyIncome: number; incomeSource: 'entered' | 'detected' | 'none'; detectedIncome: number; avgMonthlySpending: number; monthSpending: number; surplus: number;
   cashflow: { month: string; spending: number; income: number }[];
   upcoming: { name: string; date: string; amount: number; kind: 'debt' | 'bill' }[];
   lastSynced: string | null; hasData: boolean;
@@ -66,4 +66,15 @@ export interface AdvisorReport {
   budget_suggestions: { category: string; monthly_limit: number; reason: string }[];
   warnings: string[];
   missing_data: string[];
+}
+
+export interface DetectedDeposit {
+  key: string; name: string; account_name: string; mask: string | null; count: number; average_amount: number;
+  last_amount: number; frequency: string; monthly: number; last_date: string; category: string;
+}
+
+export interface ImportSummary {
+  format: 'csv' | 'ofx'; count: number; from: string; to: string; balance: number | null; flipped: boolean;
+  spending: number; payments: number; inserted?: number; duplicates?: number;
+  sample: { date: string; name: string; merchant: string | null; amount: number; category: string }[];
 }

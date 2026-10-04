@@ -181,6 +181,7 @@ async function syncRecurring(itemId: string, token: string) {
 export async function syncItem(itemId: string) {
   const item = db.prepare('SELECT * FROM items WHERE item_id = ?').get(itemId);
   if (!item) throw new Error('Unknown item');
+  if (item.products === 'manual') return;
   const errors: string[] = [];
 
   try {
@@ -217,7 +218,7 @@ let syncing: Promise<void> | null = null;
 export function syncAll(): Promise<void> {
   if (!syncing) {
     syncing = (async () => {
-      for (const { item_id } of db.prepare('SELECT item_id FROM items').all()) {
+      for (const { item_id } of db.prepare("SELECT item_id FROM items WHERE products != 'manual'").all()) {
         try { await syncItem(item_id); } catch (e) { console.error('Sync failed for', item_id, plaidErrorMessage(e)); }
       }
     })().finally(() => { syncing = null; });

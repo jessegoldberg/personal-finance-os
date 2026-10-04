@@ -5,6 +5,64 @@ import { db, getSetting } from './db';
 const NON_SPENDING = ['TRANSFER_IN', 'TRANSFER_OUT', 'LOAN_PAYMENTS', 'INCOME'];
 const SPENDING_WHERE = `t.amount > 0 AND a.hidden = 0 AND t.category NOT IN (${NON_SPENDING.map(c => `'${c}'`).join(',')})`;
 
+// Money arriving in checking/savings that isn't just shuffling between the household's own accounts.
+const DEPOSIT_WHERE = `t.amount < 0 AND a.type = 'depository' AND a.hidden = 0 AND t.category != 'LOAN_PAYMENTS'
+  AND COALESCE(t.detailed_category, '') != 'TRANSFER_IN_ACCOUNT_TRANSFER'`;
+
+function frequencyFromGaps(gaps: number[], median: number) {
+  if (median <= 9) return 'WEEKLY';
+  if (gaps.every(g => g >= 13 && g <= 15)) return 'BIWEEKLY';
+  if (median <= 19) return 'SEMI_MONTHLY';
+  return median <= 45 ? 'MONTHLY' : median <= 100 ? 'QUARTERLY' : 'IRREGULAR';
+}
+
+function depositKey(name: string) {
+  return name.toLowerCase().replace(/\d+/g, ' ').replace(/[^a-z& ]/g, ' ').replace(/\b(ppd|ccd|id|des|indn|co|web|ach|dep|deposit|direct|payroll|trn|ref)\b/g, ' ')
+    .replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' ');
+}
+
+export interface DetectedDeposit {
+  key: string; name: string; account_name: string; mask: string | null; count: number; average_amount: number;
+  last_amount: number; frequency: string; monthly: number; last_date: string; category: string;
+}
+
+// Our own repeat-deposit detection; doesn't depend on Plaid's recurring add-on being enabled.
+export function detectDeposits(): DetectedDeposit[] {
+  const rows = db.prepare(`SELECT t.date, -t.amount AS amount, COALESCE(t.merchant_name, t.name) AS name, t.category, a.name AS account_name, a.mask
+    FROM transactions t JOIN accounts a USING(account_id) WHERE ${DEPOSIT_WHERE} AND t.date >= date('now', '-180 days') ORDER BY t.date`).all();
+
+  const groups = new Map<string, any[]>();
+  for (const r of rows) {
+    const key = depositKey(r.name) || r.name;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+
+  const out: DetectedDeposit[] = [];
+  const cutoff = new Date(Date.now() - 50 * 864e5).toISOString().slice(0, 10);
+  for (const [key, list] of groups) {
+    if (list.length < 2) continue;
+    const last = list[list.length - 1];
+    if (last.date < cutoff) continue;
+    const gaps = list.slice(1).map((r, i) => (Date.parse(r.date) - Date.parse(list[i].date)) / 864e5).filter(g => g > 2).sort((a, b) => a - b);
+    if (!gaps.length) continue;
+    const gap = gaps[Math.floor(gaps.length / 2)];
+    const avg = list.reduce((s, r) => s + r.amount, 0) / list.length;
+    if (avg < 50) continue;
+    // With 3+ deposits, measured dollars-per-day beats gap math for twice-monthly or uneven schedules.
+    const spanDays = (Date.parse(last.date) - Date.parse(list[0].date)) / 864e5;
+    const monthly = list.length >= 3 && spanDays > 20
+      ? list.slice(1).reduce((s, r) => s + r.amount, 0) / spanDays * 30.44
+      : avg * Math.min(30.44 / gap, 4.35);
+    out.push({
+      key, name: last.name, account_name: last.account_name, mask: last.mask, count: list.length,
+      average_amount: avg, last_amount: last.amount, frequency: frequencyFromGaps(gaps, gap),
+      monthly, last_date: last.date, category: last.category,
+    });
+  }
+  return out.sort((a, b) => b.monthly - a.monthly);
+}
+
 function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
@@ -41,7 +99,9 @@ export function getOverview() {
   const totalDebt = debts.reduce((s: number, d: any) => s + d.balance, 0);
   const minPayments = debts.reduce((s: number, d: any) => s + (d.balance > 0 ? estimatedMinPayment(d) : 0), 0);
   const monthlyInterest = debts.reduce((s: number, d: any) => s + d.balance * (d.apr ?? 0) / 1200, 0);
-  const income = monthlyIncomeTotal();
+  const entered = monthlyIncomeTotal();
+  const detected = detectDeposits().reduce((s, d) => s + d.monthly, 0);
+  const income = entered > 0 ? entered : detected;
   const avgSpending = avgMonthlySpending();
 
   const thisMonth = monthKey(new Date());
@@ -51,7 +111,7 @@ export function getOverview() {
   const months = lastMonths(6);
   const flow = db.prepare(`SELECT substr(t.date, 1, 7) AS month,
       SUM(CASE WHEN ${SPENDING_WHERE} THEN t.amount ELSE 0 END) AS spending,
-      SUM(CASE WHEN t.amount < 0 AND t.category = 'INCOME' THEN -t.amount ELSE 0 END) AS income
+      SUM(CASE WHEN ${DEPOSIT_WHERE} THEN -t.amount ELSE 0 END) AS income
     FROM transactions t JOIN accounts a USING(account_id)
     WHERE substr(t.date, 1, 7) >= ? GROUP BY month`).all(months[0]);
   const cashflow = months.map(m => {
@@ -73,6 +133,8 @@ export function getOverview() {
     netWorth: cash + investments - totalDebt,
     cash, investments, totalDebt, minPayments, monthlyInterest,
     monthlyIncome: income,
+    incomeSource: entered > 0 ? 'entered' : detected > 0 ? 'detected' : 'none',
+    detectedIncome: detected,
     avgMonthlySpending: avgSpending,
     monthSpending,
     surplus: income - avgSpending - minPayments,
@@ -197,14 +259,19 @@ export function buildSnapshot() {
     household_notes: getSetting('household_notes') ?? '',
     totals: {
       net_worth: overview.netWorth, cash: overview.cash, investments: overview.investments, total_debt: overview.totalDebt,
-      monthly_income_entered: overview.monthlyIncome, avg_monthly_spending_last_3_months: overview.avgMonthlySpending,
+      monthly_income: overview.monthlyIncome, income_basis: overview.incomeSource, avg_monthly_spending_last_3_months: overview.avgMonthlySpending,
       total_minimum_payments: overview.minPayments, monthly_interest_cost: overview.monthlyInterest, estimated_monthly_surplus: overview.surplus,
     },
     accounts: db.prepare('SELECT name, mask, type, subtype, current_balance, available_balance, credit_limit FROM accounts WHERE hidden = 0').all(),
     debts: db.prepare('SELECT name, kind, balance, apr, min_payment, next_due_date, statement_balance, credit_limit, is_overdue, source FROM debts WHERE balance > 0').all(),
     income_sources: db.prepare('SELECT name, kind, monthly_amount, taxes_withheld, notes FROM income_sources').all(),
-    detected_recurring_deposits: db.prepare(`SELECT COALESCE(merchant_name, description) AS name, frequency, average_amount, last_date
-      FROM recurring_streams WHERE direction = 'inflow' AND is_active = 1`).all(),
+    income_note: overview.incomeSource === 'detected'
+      ? 'No income sources were entered; monthly income is estimated from the repeat deposits below. Treat them as household income.'
+      : overview.incomeSource === 'none' ? 'No income entered or detected yet.' : 'Income sources were entered by the household; repeat deposits are shown for cross-checking.',
+    repeat_deposits_last_180_days: detectDeposits().map(d => ({ name: d.name, into: `${d.account_name}${d.mask ? ' ••' + d.mask : ''}`,
+      count: d.count, average_amount: Math.round(d.average_amount), frequency: d.frequency, est_monthly: Math.round(d.monthly), last_date: d.last_date })),
+    monthly_deposits_by_month: overview.cashflow.map(c => ({ month: c.month, deposits: Math.round(c.income) })),
+    manually_tracked_accounts: db.prepare(`SELECT name, type, current_balance, updated_at AS last_updated FROM accounts WHERE item_id = 'manual'`).all(),
     recurring_bills_and_subscriptions: db.prepare(`SELECT COALESCE(merchant_name, description) AS name, category, frequency, average_amount, predicted_next_date
       FROM recurring_streams WHERE direction = 'outflow' AND is_active = 1`).all(),
     spending_by_category: spending.byCategory,

@@ -18,6 +18,8 @@ if (db.pragma('user_version', { simple: true }) < SCHEMA_VERSION) {
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
 db.exec(fs.readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf-8'));
+// Container for accounts Plaid can't reach; their data comes from statement imports.
+db.prepare("INSERT OR IGNORE INTO items (item_id, access_token, institution_name, products) VALUES ('manual', '', 'Manual & imported', 'manual')").run();
 
 console.log(`📦 Database initialized at ${dbPath}`);
 
