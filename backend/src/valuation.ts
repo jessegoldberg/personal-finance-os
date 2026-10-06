@@ -16,25 +16,30 @@ export function getHome(): Home | null {
   return db.prepare("SELECT * FROM properties WHERE id = 'home'").get() ?? null;
 }
 
+// The API caps structured outputs at 16 nullable fields, so "unknown" is encoded as 0 / "" and mapped back to null below.
+const n = (what: string) => z.number().describe(`${what}; 0 if unknown`);
+const t = (what: string) => z.string().describe(`${what}; empty string if unknown`);
+
 const ValuationSchema = z.object({
   subject: z.object({
     address: z.string(),
-    bedrooms: z.number().nullable(), bathrooms: z.number().nullable(), sqft: z.number().nullable(),
-    year_built: z.number().nullable(), lot_sqft: z.number().nullable(),
-    last_sale_price: z.number().nullable(), last_sale_date: z.string().nullable(),
-    county_appraised_value: z.number().nullable(), county_appraisal_year: z.string().nullable(),
+    bedrooms: n('bedrooms'), bathrooms: n('bathrooms'), sqft: n('finished square feet'),
+    year_built: n('year built'), lot_sqft: n('lot size in square feet'),
+    last_sale_price: n('last sale price'), last_sale_date: t('last sale date YYYY-MM-DD'),
+    county_appraised_value: n('county assessor/auditor market value'), county_appraisal_year: t('tax year of that appraisal'),
   }),
-  public_estimates: z.array(z.object({ source: z.string(), value: z.number(), as_of: z.string().nullable(), url: z.string().nullable() })),
+  public_estimates: z.array(z.object({ source: z.string(), value: z.number(), as_of: t('as-of date'), url: t('source URL') })),
   comps: z.array(z.object({
-    address: z.string(), price: z.number(), date: z.string().nullable(), status: z.enum(['sold', 'pending', 'active', 'unknown']),
-    sqft: z.number().nullable(), bedrooms: z.number().nullable(), bathrooms: z.number().nullable(),
-    distance_miles: z.number().nullable(), source: z.string(), url: z.string().nullable(),
+    address: z.string(), price: z.number(), date: t('sale or list date YYYY-MM-DD'), status: z.enum(['sold', 'pending', 'active', 'unknown']),
+    sqft: n('square feet'), bedrooms: n('bedrooms'), bathrooms: n('bathrooms'),
+    distance_miles: n('distance from subject in miles'), source: z.string(), url: t('listing/record URL'),
   })),
   market: z.object({
     summary: z.string(),
-    yoy_price_change_pct: z.number().nullable(), median_days_on_market: z.number().nullable(),
-    mortgage_rate_30yr: z.number().nullable(), mortgage_rate_15yr: z.number().nullable(), heloc_rate_typical: z.number().nullable(),
-    rate_source: z.string().nullable(),
+    yoy_price_change_pct: z.number().nullable().describe('year-over-year local price change %, null if unknown'),
+    median_days_on_market: n('median days on market'),
+    mortgage_rate_30yr: n('average 30-year fixed rate %'), mortgage_rate_15yr: n('average 15-year fixed rate %'),
+    heloc_rate_typical: n('typical HELOC rate %'), rate_source: t('where the rates came from'),
   }),
   estimate: z.object({
     value: z.number(), low: z.number(), high: z.number(), confidence: z.enum(['high', 'medium', 'low']),
@@ -43,7 +48,23 @@ const ValuationSchema = z.object({
   adjustments: z.array(z.object({ factor: z.string(), impact: z.string() })),
   caveats: z.array(z.string()),
 });
-export type Valuation = z.infer<typeof ValuationSchema> & {
+
+type Raw = z.infer<typeof ValuationSchema>;
+type Nullish<T> = { [K in keyof T]: T[K] extends number ? number | null : T[K] extends string ? string | null : T[K] };
+const nul = <T extends Record<string, any>>(o: T, keep: string[] = []): Nullish<T> =>
+  Object.fromEntries(Object.entries(o).map(([k, v]) => [k, keep.includes(k) ? v : (v === 0 || v === '' ? null : v)])) as Nullish<T>;
+
+function denull(r: Raw) {
+  return {
+    ...r,
+    subject: nul(r.subject, ['address']),
+    public_estimates: r.public_estimates.map(p => nul(p, ['source', 'value'])),
+    comps: r.comps.map(c => nul(c, ['address', 'price', 'status', 'source'])),
+    market: nul(r.market, ['summary', 'yoy_price_change_pct']),
+  };
+}
+
+export type Valuation = ReturnType<typeof denull> & {
   rentcast: { price: number; low: number; high: number } | null;
   rentcast_error: string | null;
   ppsf_check: { median_ppsf: number; implied_value: number; comps_used: number } | null;
@@ -154,7 +175,7 @@ async function structure(notes: string, home: Home) {
   }).finalMessage();
   if (message.stop_reason === 'refusal' || message.stop_reason === 'max_tokens') throw new Error('Could not structure the valuation. Try again.');
   const text = message.content.find((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')?.text ?? '{}';
-  return ValuationSchema.parse(JSON.parse(text));
+  return denull(ValuationSchema.parse(JSON.parse(text)));
 }
 
 export async function valuateHome(): Promise<Valuation> {
