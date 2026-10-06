@@ -75,6 +75,8 @@ export interface AdvisorReport {
   action_plan: { when: string; action: string; amount: number | null; from_account: string | null; to_account: string | null; why: string; estimated_monthly_savings: number | null }[];
   spending_cuts: { target: string; current_monthly: number; suggested_monthly: number; monthly_savings: number; reason: string }[];
   budget_suggestions: { category: string; monthly_limit: number; reason: string }[];
+  home_options?: { option: string; monthly_outflow_change: number; cash_left_after: number; consumer_debt_after: number; summary: string;
+    pros: string[]; cons: string[]; verdict: 'recommended' | 'worth_exploring' | 'not_now' | 'not_recommended'; next_step: string }[];
   warnings: string[];
   missing_data: string[];
 }
@@ -111,7 +113,7 @@ export interface HomeValuation {
 export interface HomeSummary {
   home: { address: string; property_type: string | null; bedrooms: number | null; bathrooms: number | null; sqft: number | null; year_built: number | null;
     purchase_price: number | null; purchase_date: string | null; condition: string | null; notes: string | null; manual_value: number | null;
-    debt_ids: string; valued_at: string | null };
+    debt_ids: string; valued_at: string | null; escrow_monthly: number | null };
   valuation: HomeValuation | null;
   debts: { id: string; name: string; kind: string; balance: number; apr: number | null; min_payment: number | null }[];
   value: number | null; owed: number; equity: number | null; ltv: number | null; borrowable_at_80: number | null; borrowable_at_85: number | null;

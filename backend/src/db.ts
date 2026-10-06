@@ -18,6 +18,12 @@ if (db.pragma('user_version', { simple: true }) < SCHEMA_VERSION) {
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
 db.exec(fs.readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf-8'));
+// Columns added after first deploy; CREATE TABLE IF NOT EXISTS won't add them to existing tables.
+function addColumn(table: string, column: string, type: string) {
+  if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c: any) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+addColumn('properties', 'escrow_monthly', 'REAL');
+
 // Container for accounts Plaid can't reach; their data comes from statement imports.
 db.prepare("INSERT OR IGNORE INTO items (item_id, access_token, institution_name, products) VALUES ('manual', '', 'Manual & imported', 'manual')").run();
 

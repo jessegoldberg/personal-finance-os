@@ -1,10 +1,19 @@
 import { db, getSetting } from './db';
 import { homeSummary } from './valuation';
 
+function amortPayment(principal: number, apr: number, months: number) {
+  if (principal <= 0) return 0;
+  const r = apr / 1200;
+  return r === 0 ? principal / months : principal * r / (1 - Math.pow(1 + r, -months));
+}
+
 // Plaid amounts: positive = money leaving the account, negative = money coming in.
 // Transfers and debt payments are excluded from "spending" so a card payment isn't counted twice.
 const NON_SPENDING = ['TRANSFER_IN', 'TRANSFER_OUT', 'LOAN_PAYMENTS', 'INCOME'];
-const SPENDING_WHERE = `t.amount > 0 AND a.hidden = 0 AND t.category NOT IN (${NON_SPENDING.map(c => `'${c}'`).join(',')})`;
+// Card interest is excluded too: it's already counted through minimum payments and monthly interest cost.
+const SPENDING_WHERE = `t.amount > 0 AND a.hidden = 0 AND t.category NOT IN (${NON_SPENDING.map(c => `'${c}'`).join(',')})
+  AND COALESCE(t.detailed_category, '') != 'BANK_FEES_INTEREST_CHARGE'
+  AND NOT (t.category = 'BANK_FEES' AND lower(t.name) LIKE '%interest%')`;
 
 // Money arriving in checking/savings that isn't just shuffling between the household's own accounts.
 const DEPOSIT_WHERE = `t.amount < 0 AND a.type = 'depository' AND a.hidden = 0 AND t.category != 'LOAN_PAYMENTS'
@@ -81,12 +90,15 @@ export function monthlyIncomeTotal(): number {
   return db.prepare('SELECT COALESCE(SUM(monthly_amount), 0) AS s FROM income_sources').get().s;
 }
 
+// Median of the last 3 complete months, so one unusual month (a trip, a big repair) doesn't skew the baseline.
 function avgMonthlySpending(): number {
   const months = lastMonths(3, false);
-  const row = db.prepare(`SELECT COALESCE(SUM(t.amount), 0) AS s, COUNT(DISTINCT substr(t.date, 1, 7)) AS m
-    FROM transactions t JOIN accounts a USING(account_id)
-    WHERE ${SPENDING_WHERE} AND substr(t.date, 1, 7) IN (${months.map(() => '?').join(',')})`).get(...months);
-  return row.m ? row.s / row.m : 0;
+  const totals = db.prepare(`SELECT SUM(t.amount) AS s FROM transactions t JOIN accounts a USING(account_id)
+    WHERE ${SPENDING_WHERE} AND substr(t.date, 1, 7) IN (${months.map(() => '?').join(',')})
+    GROUP BY substr(t.date, 1, 7)`).all(...months).map((r: any) => r.s).sort((a: number, b: number) => a - b);
+  if (!totals.length) return 0;
+  const mid = Math.floor(totals.length / 2);
+  return totals.length % 2 ? totals[mid] : (totals[mid - 1] + totals[mid]) / 2;
 }
 
 export function getOverview() {
@@ -252,6 +264,61 @@ export function simulatePayoff(strategy: Strategy, extra: number) {
   };
 }
 
+// Deterministic sell/downsize/rent math so the advisor reasons from real numbers instead of dismissing a move on rates alone.
+export function homeScenarios() {
+  const h = homeSummary();
+  if (!h || h.value == null) return null;
+  const m = h.valuation?.market;
+  const rate = m?.mortgage_rate_30yr || 6.75;
+  const escrow = h.home.escrow_monthly ?? 0;
+  const securedIds = new Set(h.debts.map((d: any) => d.id));
+  const other = db.prepare(`SELECT d.* FROM debts d LEFT JOIN accounts a USING(account_id) WHERE COALESCE(a.hidden, 0) = 0 AND d.balance > 0`).all()
+    .filter((d: any) => !securedIds.has(d.id));
+  const otherBalance = other.reduce((s: number, d: any) => s + d.balance, 0);
+  const otherMins = other.reduce((s: number, d: any) => s + estimatedMinPayment(d), 0);
+  const housingNow = h.debts.reduce((s: number, d: any) => s + estimatedMinPayment(d), 0) + escrow;
+  const outflowNow = housingNow + otherMins;
+
+  const SELL = 0.08, BUY_CLOSING = 0.03, TAX_INS = 0.02, RESERVE = 10000;
+  const net = h.value * (1 - SELL) - h.owed;
+  const afterDebts = net - otherBalance;
+  const round = (n: number) => Math.round(n);
+
+  const buy = (price: number) => {
+    const closing = price * BUY_CLOSING;
+    const down = Math.max(0, Math.min(afterDebts - closing - RESERVE, price));
+    const loan = price - down;
+    const pi = amortPayment(loan, rate, 360);
+    const taxIns = price * TAX_INS / 12;
+    return {
+      price: round(price), down_payment: round(down), down_pct: round(down / price * 100), new_loan: round(loan),
+      monthly_principal_interest: round(pi), monthly_tax_insurance_est: round(taxIns), monthly_housing: round(pi + taxIns),
+      monthly_change_vs_today: round(pi + taxIns - outflowNow), cash_left_after: round(Math.max(0, afterDebts - closing - down)),
+      pmi_likely: down / price < 0.2 && loan > 0,
+    };
+  };
+  const targets = [...new Set([m?.typical_price_smaller_home || 0, h.value * 0.75, h.value * 0.6]
+    .filter(p => p > 0).map(p => Math.round(p / 5000) * 5000))].sort((a, b) => b - a);
+
+  return {
+    assumptions: {
+      selling_costs_pct: SELL * 100, buyer_closing_pct: BUY_CLOSING * 100, cash_kept_in_reserve: RESERVE, new_mortgage_rate_30yr: rate, new_home_tax_insurance_pct_per_year: TAX_INS * 100,
+      moving_costs_not_included: true,
+      ...(escrow ? {} : { warning: 'Current escrow (taxes+insurance) not entered, so today\'s housing cost is understated vs. the new-home estimates.' }),
+      ...(/,\s*FL\b/i.test(h.home.address) ? { florida_note: 'A Florida purchase resets the assessed value (homestead Save Our Homes cap is lost), so property tax on a new home is based on its full price.' } : {}),
+    },
+    today: { housing_monthly: round(housingNow), escrow_monthly: round(escrow), other_debt_minimums_monthly: round(otherMins),
+      total_monthly_debt_and_housing: round(outflowNow), other_debt_balance: round(otherBalance) },
+    sale: { sale_price: round(h.value), selling_costs: round(h.value * SELL), payoff_mortgage_and_heloc: round(h.owed),
+      net_proceeds: round(net), left_after_paying_off_all_other_debts: round(afterDebts) },
+    sell_and_buy: targets.map(buy),
+    sell_and_rent: m?.typical_rent_similar_home ? {
+      monthly_rent: round(m.typical_rent_similar_home), monthly_change_vs_today: round(m.typical_rent_similar_home - outflowNow),
+      cash_left_after: round(Math.max(0, afterDebts)),
+    } : null,
+  };
+}
+
 // Everything the advisor sees. Contains balances and names only — never access tokens or full account numbers.
 export function buildSnapshot() {
   const overview = getOverview();
@@ -262,7 +329,7 @@ export function buildSnapshot() {
     household_notes: getSetting('household_notes') ?? '',
     totals: {
       net_worth: overview.netWorth, cash: overview.cash, investments: overview.investments, total_debt: overview.totalDebt,
-      monthly_income: overview.monthlyIncome, income_basis: overview.incomeSource, avg_monthly_spending_last_3_months: overview.avgMonthlySpending,
+      monthly_income: overview.monthlyIncome, income_basis: overview.incomeSource, typical_monthly_spending_median_of_last_3_months: overview.avgMonthlySpending,
       total_minimum_payments: overview.minPayments, monthly_interest_cost: overview.monthlyInterest, estimated_monthly_surplus: overview.surplus,
     },
     accounts: db.prepare('SELECT name, mask, type, subtype, current_balance, available_balance, credit_limit FROM accounts WHERE hidden = 0').all(),
@@ -290,6 +357,7 @@ export function buildSnapshot() {
         valued_at: h.home.valued_at, secured_debts: h.debts, total_secured_debt: h.owed, equity: h.equity,
         loan_to_value_pct: h.ltv != null ? Math.round(h.ltv * 1000) / 10 : null, borrowable_up_to_80_pct_ltv: h.borrowable_at_80,
         market: h.valuation?.market ?? null, purchase_price: h.home.purchase_price, purchase_date: h.home.purchase_date,
+        escrow_monthly: h.home.escrow_monthly, scenarios: homeScenarios(),
       };
     })(),
     payoff_simulations: (['minimum', 'snowball', 'avalanche'] as Strategy[]).map(s => {

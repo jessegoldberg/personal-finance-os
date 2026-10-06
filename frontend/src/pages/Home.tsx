@@ -31,6 +31,7 @@ function HomeForm({ summary, debts, onSaved, onCancel }: { summary: HomeSummary 
     address: h?.address ?? '', property_type: h?.property_type ?? 'Single Family', bedrooms: h?.bedrooms?.toString() ?? '', bathrooms: h?.bathrooms?.toString() ?? '',
     sqft: h?.sqft?.toString() ?? '', year_built: h?.year_built?.toString() ?? '', purchase_price: h?.purchase_price?.toString() ?? '',
     purchase_date: h?.purchase_date ?? '', condition: h?.condition ?? 'good', notes: h?.notes ?? '', manual_value: h?.manual_value?.toString() ?? '',
+    escrow_monthly: h?.escrow_monthly?.toString() ?? '',
   });
   const [secured, setSecured] = useState<string[]>(h ? JSON.parse(h.debt_ids || '[]') : securedDefault);
   const [error, setError] = useState<string | null>(null);
@@ -76,8 +77,9 @@ function HomeForm({ summary, debts, onSaved, onCancel }: { summary: HomeSummary 
           {!debts.length && <p className="text-xs text-slate-500">Add your mortgage and HELOC on the Accounts page (Accounts Plaid can't connect) first.</p>}
         </div>
       </div>
+      <div className="sm:col-span-2"><label className="label">Monthly escrow (taxes + insurance)</label><input className="input" type="number" step="0.01" value={f.escrow_monthly} onChange={set('escrow_monthly')} placeholder="From your mortgage statement" /></div>
       <div className="sm:col-span-2"><label className="label">Override value (optional)</label><input className="input" type="number" value={f.manual_value} onChange={set('manual_value')} placeholder="Use the estimate" /></div>
-      <div className="flex items-end gap-2 sm:col-span-4">
+      <div className="flex items-end gap-2 sm:col-span-2">
         <button className="btn-primary"><Check className="h-4 w-4" /> Save home</button>
         {onCancel && <button type="button" className="btn-ghost" onClick={onCancel}><X className="h-4 w-4" /> Cancel</button>}
         <ErrorNote error={error} />
@@ -145,8 +147,8 @@ function Scenarios({ s, debts }: { s: HomeSummary; debts: Debt[] }) {
     // Stay: keep paying what you pay today.
     const stayParts = secured.map(d => ({ d, p: payoff(d.balance, d.apr ?? 0, d.min_payment ?? 0) }));
     const stay = {
-      monthly: secured.reduce((t, d) => t + (d.min_payment ?? 0), 0) + (a.includeCards ? cardsMin : 0),
-      interest: stayParts.reduce((t, x) => t + (x.p?.interest ?? 0), 0) + (a.includeCards ? cardsInterest : 0),
+      monthly: secured.reduce((t, d) => t + (d.min_payment ?? 0), 0) + (s.home.escrow_monthly ?? 0) + cardsMin,
+      interest: stayParts.reduce((t, x) => t + (x.p?.interest ?? 0), 0) + cardsInterest,
       months: stayParts.some(x => !x.p) ? null : Math.max(0, ...stayParts.map(x => x.p!.months)),
       cash: 0,
       notes: [
@@ -161,8 +163,8 @@ function Scenarios({ s, debts }: { s: HomeSummary; debts: Debt[] }) {
     const refiPmt = payment(refiPrincipal, a.refiRate, a.refiTerm * 12);
     const ltv = value ? refiPrincipal / value : 1;
     const refi = {
-      monthly: refiPmt,
-      interest: refiPmt * a.refiTerm * 12 - refiPrincipal,
+      monthly: refiPmt + (s.home.escrow_monthly ?? 0) + (a.includeCards ? 0 : cardsMin),
+      interest: refiPmt * a.refiTerm * 12 - refiPrincipal + (a.includeCards ? 0 : cardsInterest),
       months: a.refiTerm * 12,
       cash: -(refiPrincipal - base),
       notes: [
@@ -233,7 +235,7 @@ function Scenarios({ s, debts }: { s: HomeSummary; debts: Debt[] }) {
             <div className="flex items-center justify-between"><p className="text-sm font-semibold text-slate-100">{c.title}</p>
               {c.data.interest === bestInterest && <Badge tone="good">Least interest</Badge>}</div>
             <dl className="mt-3 space-y-2 text-sm">
-              <div className="flex justify-between"><dt className="text-slate-500">Monthly payments</dt><dd className="font-semibold tabular-nums text-slate-100">{money(c.data.monthly)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">All monthly payments</dt><dd className="font-semibold tabular-nums text-slate-100">{money(c.data.monthly)}</dd></div>
               <div className="flex justify-between"><dt className="text-slate-500">Interest from here</dt><dd className="tabular-nums text-slate-200">{money(c.data.interest)}</dd></div>
               <div className="flex justify-between"><dt className="text-slate-500">Housing debt-free in</dt><dd className="tabular-nums text-slate-200">{yrs(c.data.months)}</dd></div>
               <div className="flex justify-between"><dt className="text-slate-500">{c.key === 'refi' ? 'Closing costs' : 'Cash left over'}</dt><dd className="tabular-nums text-slate-200">{money(Math.abs(c.data.cash))}</dd></div>
@@ -243,7 +245,7 @@ function Scenarios({ s, debts }: { s: HomeSummary; debts: Debt[] }) {
         ))}
       </div>
       <p className="border-t border-white/[0.06] px-5 py-3 text-xs text-slate-600">
-        "Stay" uses the payments you entered, which may include escrow. Estimates only — get a lender quote before refinancing or listing.
+        Stay and refinance include your escrow ({money(s.home.escrow_monthly ?? 0)}/mo); the new home uses the tax + insurance % above. Moving costs aren't included. Estimates only — get a lender quote before refinancing or listing.
       </p>
     </Card>
   );

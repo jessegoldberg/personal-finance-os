@@ -230,16 +230,16 @@ app.put('/api/home', route(req => {
   const b = req.body ?? {};
   if (!b.address || String(b.address).trim().length < 8) throw Object.assign(new Error('Full street address, city, state and ZIP required'), { status: 400 });
   const existing = db.prepare("SELECT address FROM properties WHERE id = 'home'").get();
-  db.prepare(`INSERT INTO properties (id, address, property_type, bedrooms, bathrooms, sqft, year_built, purchase_price, purchase_date, condition, notes, manual_value, debt_ids)
-    VALUES ('home', @address, @property_type, @bedrooms, @bathrooms, @sqft, @year_built, @purchase_price, @purchase_date, @condition, @notes, @manual_value, @debt_ids)
+  db.prepare(`INSERT INTO properties (id, address, property_type, bedrooms, bathrooms, sqft, year_built, purchase_price, purchase_date, condition, notes, manual_value, debt_ids, escrow_monthly)
+    VALUES ('home', @address, @property_type, @bedrooms, @bathrooms, @sqft, @year_built, @purchase_price, @purchase_date, @condition, @notes, @manual_value, @debt_ids, @escrow_monthly)
     ON CONFLICT(id) DO UPDATE SET address = excluded.address, property_type = excluded.property_type, bedrooms = excluded.bedrooms,
       bathrooms = excluded.bathrooms, sqft = excluded.sqft, year_built = excluded.year_built, purchase_price = excluded.purchase_price,
       purchase_date = excluded.purchase_date, condition = excluded.condition, notes = excluded.notes, manual_value = excluded.manual_value,
-      debt_ids = excluded.debt_ids`).run({
+      debt_ids = excluded.debt_ids, escrow_monthly = excluded.escrow_monthly`).run({
     address: String(b.address).trim(), property_type: b.property_type || 'Single Family', bedrooms: num(b.bedrooms), bathrooms: num(b.bathrooms),
     sqft: num(b.sqft), year_built: num(b.year_built), purchase_price: num(b.purchase_price), purchase_date: b.purchase_date || null,
     condition: b.condition || 'good', notes: b.notes || null, manual_value: num(b.manual_value),
-    debt_ids: JSON.stringify(Array.isArray(b.debt_ids) ? b.debt_ids.map(String) : []),
+    debt_ids: JSON.stringify(Array.isArray(b.debt_ids) ? b.debt_ids.map(String) : []), escrow_monthly: num(b.escrow_monthly),
   });
   // A different address invalidates the old valuation.
   if (existing && existing.address !== String(b.address).trim()) db.prepare("UPDATE properties SET valuation = NULL, valued_at = NULL WHERE id = 'home'").run();

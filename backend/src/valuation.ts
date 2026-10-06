@@ -8,7 +8,7 @@ const client = new Anthropic();
 
 export interface Home {
   id: string; address: string; property_type: string | null; bedrooms: number | null; bathrooms: number | null; sqft: number | null;
-  year_built: number | null; purchase_price: number | null; purchase_date: string | null; condition: string | null; notes: string | null;
+  year_built: number | null; escrow_monthly: number | null; purchase_price: number | null; purchase_date: string | null; condition: string | null; notes: string | null;
   manual_value: number | null; debt_ids: string; valuation: string | null; valued_at: string | null;
 }
 
@@ -40,6 +40,8 @@ const ValuationSchema = z.object({
     median_days_on_market: n('median days on market'),
     mortgage_rate_30yr: n('average 30-year fixed rate %'), mortgage_rate_15yr: n('average 15-year fixed rate %'),
     heloc_rate_typical: n('typical HELOC rate %'), rate_source: t('where the rates came from'),
+    typical_rent_similar_home: n('typical monthly rent for a home like the subject nearby'),
+    typical_price_smaller_home: n('typical recent sale price of a smaller/cheaper home (about one bedroom fewer or ~25% less space) in the same area'),
   }),
   estimate: z.object({
     value: z.number(), low: z.number(), high: z.number(), confidence: z.enum(['high', 'medium', 'low']),
@@ -108,7 +110,7 @@ const RESEARCH_SYSTEM = `You are a residential real-estate appraiser producing a
 2. Find the county auditor/assessor appraised value for the parcel.
 3. Collect public automated estimates (Zillow, Redfin, Realtor.com, etc.) where they appear in search results.
 4. Find closed sales of similar homes nearby — ideally within ~1 mile, last 6-12 months, similar size, age and bed/bath. Prefer SOLD over active listings. Aim for 5+ solid comps.
-5. Note the local market trend and today's average 30-year and 15-year fixed mortgage rates and typical HELOC rates.
+5. Note the local market trend, today's average 30-year and 15-year fixed mortgage rates and typical HELOC rates, the typical monthly rent for a similar home nearby, and what a smaller/cheaper home in the same area typically sells for (the owners may consider downsizing).
 6. Reconcile: weight closed comps most heavily (adjusted for size/condition/age), then automated estimates and the provided property-data API result, and treat assessed value as a floor-ish sanity check (assessments often lag the market). Explain the weighting.
 
 Report every number with its source. Be explicit about uncertainty. Do not invent comps — only use sales you actually found.`;
@@ -136,7 +138,7 @@ Property-data API result (RentCast AVM; comps are listing-based, "Inactive" usua
 
 Price-per-sqft check from those comps: ${ppsf ? JSON.stringify(ppsf) : 'unavailable'}
 
-Research with web search, then write your full appraisal notes: subject facts, assessed value, each public estimate, each comp (address, price, date, status, sqft, beds/baths, distance, source URL), market trend, current mortgage/HELOC rates, and your reconciled value with low/high range and confidence.`,
+Research with web search, then write your full appraisal notes: subject facts, assessed value, each public estimate, each comp (address, price, date, status, sqft, beds/baths, distance, source URL), market trend, current mortgage/HELOC rates, typical rent for a similar home, typical price of a smaller home nearby, and your reconciled value with low/high range and confidence.`,
   }];
 
   let message: Anthropic.Beta.BetaMessage | null = null;

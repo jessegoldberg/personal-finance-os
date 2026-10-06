@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sparkles, AlertTriangle, Scissors, Target, CalendarCheck, Send, HelpCircle, Check, RefreshCw } from 'lucide-react';
+import { Sparkles, AlertTriangle, Scissors, Target, CalendarCheck, Send, HelpCircle, Check, RefreshCw, Home as HomeIcon } from 'lucide-react';
 import type { PageProps } from '../App';
 import { useApi } from '../hooks/useApi';
 import { api, runJob, AdvisorReport } from '../lib/api';
@@ -166,6 +166,38 @@ export default function Advisor(_: PageProps) {
             </Card>
           </div>
           <p className="px-1 text-sm text-slate-400">{report.strategy.rationale}</p>
+
+          {report.home_options && report.home_options.length > 0 && (
+            <Card>
+              <CardHeader title={<span className="flex items-center gap-2"><HomeIcon className="h-4 w-4 text-violet-400" /> Home options</span>}
+                subtitle="Stay, borrow against the house, or sell — compared on total monthly payments, not just interest rates" />
+              <div className="grid gap-px overflow-hidden rounded-b-2xl bg-white/[0.06] mt-4 md:grid-cols-2 xl:grid-cols-3">
+                {report.home_options.map((h, i) => {
+                  const tone = h.verdict === 'recommended' ? 'good' : h.verdict === 'worth_exploring' ? 'info' : h.verdict === 'not_now' ? 'warn' : 'bad';
+                  return (
+                    <div key={i} className="bg-ink-900 p-5">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-100">{h.option}</p>
+                        <Badge tone={tone}>{h.verdict.replace('_', ' ')}</Badge>
+                      </div>
+                      <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                        <div><dt className="text-slate-500">Monthly</dt><dd className={`text-sm font-semibold ${h.monthly_outflow_change < 0 ? 'text-emerald-400' : h.monthly_outflow_change > 0 ? 'text-rose-400' : 'text-slate-200'}`}>
+                          {h.monthly_outflow_change < 0 ? '−' : h.monthly_outflow_change > 0 ? '+' : ''}{money(Math.abs(h.monthly_outflow_change))}</dd></div>
+                        <div><dt className="text-slate-500">Cash left</dt><dd className="text-sm font-semibold text-slate-200">{money(h.cash_left_after)}</dd></div>
+                        <div><dt className="text-slate-500">Other debt</dt><dd className="text-sm font-semibold text-slate-200">{money(h.consumer_debt_after)}</dd></div>
+                      </dl>
+                      <p className="mt-3 text-sm text-slate-400">{h.summary}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                        <ul className="space-y-1 text-emerald-200/80">{h.pros.map((p, j) => <li key={j}>+ {p}</li>)}</ul>
+                        <ul className="space-y-1 text-rose-200/80">{h.cons.map((c, j) => <li key={j}>− {c}</li>)}</ul>
+                      </div>
+                      <p className="mt-3 border-t border-white/[0.06] pt-2 text-xs text-slate-300"><span className="text-slate-500">Next step:</span> {h.next_step}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
 
           {report.warnings.length > 0 && (
             <Card className="border-amber-500/20 bg-amber-500/[0.04] p-5">

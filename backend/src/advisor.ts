@@ -40,6 +40,17 @@ const ReportSchema = z.object({
     monthly_limit: z.number(),
     reason: z.string(),
   })),
+  home_options: z.array(z.object({
+    option: z.string().describe('e.g. "Stay and pay down", "Sell and buy a ~$325k home", "Sell and rent", "HELOC/home-equity consolidation"'),
+    monthly_outflow_change: z.number().describe('Change in total monthly housing + debt payments vs. today; negative frees cash'),
+    cash_left_after: z.number().describe('Cash remaining after the move/transaction and debt payoffs'),
+    consumer_debt_after: z.number().describe('Non-mortgage debt remaining right after this option'),
+    summary: z.string().describe('2-3 sentences with the key numbers'),
+    pros: z.array(z.string()),
+    cons: z.array(z.string()),
+    verdict: z.enum(['recommended', 'worth_exploring', 'not_now', 'not_recommended']),
+    next_step: z.string().describe('The concrete next step to evaluate or act on this option'),
+  })).describe('Empty array only when there is no home in the data'),
   warnings: z.array(z.string()),
   missing_data: z.array(z.string()).describe('Information that would materially improve this plan'),
 });
@@ -59,7 +70,7 @@ How to advise:
 - Budget suggestions must use the Plaid category codes exactly as provided.
 - Income: use income_sources when present. When income_basis is "detected", the repeat deposits ARE the household's income — build the plan on them (paychecks, side-gig payouts, grants) rather than saying income is unknown; mention which deposits you counted.
 - Some accounts are tracked manually from statement imports (manually_tracked_accounts); note if their last_updated is more than ~35 days old.
-- Home: if a home is present, weigh options like paying the HELOC down aggressively, refinancing/consolidating (only if LTV allows and the new rate beats the blended rate), or selling — always counting ~6-10% selling costs and the risk of turning unsecured debt into debt secured by the house. Use the market rates provided rather than guessing.
+- Home: when a home is present you MUST fill home_options with at least: stay (baseline), each sell-and-buy option in home.scenarios.sell_and_buy, sell-and-rent if rent data exists, and equity-based consolidation (HELOC draw or cash-out refi). Judge every option on TOTAL monthly outflow (housing + all debt minimums), total interest and how fast consumer debt disappears, not on mortgage rates alone: a sale that clears all consumer debt can free more cash per month than keeping a low-rate mortgage, even at a higher new rate on a smaller loan. Use the scenario numbers as computed; account for selling costs (already included), moving costs (not included, ~$3-6k), escrow/property-tax and insurance changes, market softness and disruption to the family. Never dismiss an option without its numbers, and mention in the summary if a home option beats the current path on monthly cash flow. Remember equity-based consolidation turns unsecured debt into debt secured by the house.
 - If data is thin (few transactions, missing APRs, no income entered), say so in missing_data and give the best plan possible with what exists.
 - Order action_plan chronologically, starting from today's date in the snapshot.`;
 
