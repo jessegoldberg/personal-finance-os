@@ -5,7 +5,7 @@ dotenv.config();
 
 import { db, getSetting, setSetting } from './db';
 import { createLinkToken, exchangePublicToken, removeItem, syncAll, syncItem, plaidErrorMessage } from './plaid';
-import { getOverview, getSpending, getRecurring, simulatePayoff, monthlyEquivalent, detectDeposits } from './analytics';
+import { getOverview, getSpending, simulatePayoff, detectDeposits, detectRecurringCharges } from './analytics';
 import { parseStatement, importStatement, setManualBalance } from './importer';
 import { generateReport, latestReport, chat } from './advisor';
 import { valuateHome, homeSummary } from './valuation';
@@ -145,7 +145,14 @@ app.get('/api/categories', route(() => db.prepare('SELECT DISTINCT category FROM
 // ---- Analytics ----
 app.get('/api/overview', route(() => getOverview()));
 app.get('/api/spending', route(req => getSpending(Math.min(Math.max(Number(req.query.months) || 6, 2), 24))));
-app.get('/api/recurring', route(() => getRecurring().map((r: any) => ({ ...r, monthly: monthlyEquivalent(r.average_amount, r.frequency) }))));
+app.get('/api/recurring', route(() => detectRecurringCharges()));
+app.put('/api/recurring/:key', route(req => {
+  const decision = ['keep', 'review', 'cut'].includes(req.body?.decision) ? req.body.decision : 'review';
+  db.prepare(`INSERT INTO recurring_decisions (key, decision, note) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET decision = excluded.decision, note = excluded.note, updated_at = CURRENT_TIMESTAMP`)
+    .run(req.params.key, decision, req.body?.note ?? null);
+  return { ok: true };
+}));
 app.get('/api/payoff', route(req => {
   const extra = Math.max(0, Number(req.query.extra) || 0);
   return { minimum: simulatePayoff('minimum', 0), avalanche: simulatePayoff('avalanche', extra), snowball: simulatePayoff('snowball', extra) };
@@ -159,8 +166,10 @@ app.post('/api/debts', route(req => {
   const b = req.body ?? {};
   if (!b.name) throw Object.assign(new Error('name required'), { status: 400 });
   const id = newId('debt');
-  db.prepare(`INSERT INTO debts (id, source, name, kind, balance, apr, min_payment, next_due_date) VALUES (?, 'manual', ?, ?, ?, ?, ?, ?)`)
-    .run(id, b.name, b.kind || 'other', num(b.balance) ?? 0, num(b.apr), num(b.min_payment), b.next_due_date || null);
+  db.prepare(`INSERT INTO debts (id, source, name, kind, balance, apr, min_payment, next_due_date, promo_end_date, promo_deferred, regular_apr)
+    VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, b.name, b.kind || 'other', num(b.balance) ?? 0, num(b.apr), num(b.min_payment), b.next_due_date || null,
+      b.promo_end_date || null, b.promo_deferred ? 1 : 0, num(b.regular_apr));
   return db.prepare('SELECT * FROM debts WHERE id = ?').get(id);
 }));
 
@@ -173,6 +182,11 @@ app.put('/api/debts/:id', route(req => {
     .run(b.name ?? existing.name, b.kind ?? existing.kind, existing.source === 'plaid' ? existing.balance : (num(b.balance) ?? existing.balance),
       num(b.apr), num(b.min_payment), b.next_due_date || null, req.params.id);
   if (existing.source === 'manual' && existing.account_id && num(b.balance) !== null) setManualBalance(existing.account_id, num(b.balance)!);
+  // Promo fields are optional on updates; leave them alone unless sent.
+  if (b.promo_end_date !== undefined) {
+    db.prepare('UPDATE debts SET promo_end_date = ?, promo_deferred = ?, regular_apr = ? WHERE id = ?')
+      .run(b.promo_end_date || null, b.promo_deferred ? 1 : 0, num(b.regular_apr), req.params.id);
+  }
   return db.prepare('SELECT * FROM debts WHERE id = ?').get(req.params.id);
 }));
 

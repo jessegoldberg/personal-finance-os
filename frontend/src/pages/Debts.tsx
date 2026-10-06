@@ -21,7 +21,9 @@ function DebtForm({ debt, onSave, onCancel }: { debt?: Debt; onSave: (d: any) =>
   const [f, setF] = useState({
     name: debt?.name ?? '', kind: debt?.kind ?? 'credit', balance: debt?.balance?.toString() ?? '', apr: debt?.apr?.toString() ?? '',
     min_payment: debt?.min_payment?.toString() ?? '', next_due_date: debt?.next_due_date ?? '',
+    promo_end_date: debt?.promo_end_date ?? '', promo_deferred: debt?.promo_deferred ?? 1, regular_apr: debt?.regular_apr?.toString() ?? '',
   });
+  const [hasPromo, setHasPromo] = useState(!!debt?.promo_end_date);
   const [error, setError] = useState<string | null>(null);
   const plaid = debt?.source === 'plaid';
   const set = (k: keyof typeof f) => (e: any) => setF({ ...f, [k]: e.target.value });
@@ -29,7 +31,7 @@ function DebtForm({ debt, onSave, onCancel }: { debt?: Debt; onSave: (d: any) =>
   return (
     <form className="grid gap-3 p-5 sm:grid-cols-6" onSubmit={async e => {
       e.preventDefault();
-      try { await onSave(f); } catch (err: any) { setError(err.message); }
+      try { await onSave(hasPromo ? f : { ...f, promo_end_date: '', promo_deferred: 0, regular_apr: '' }); } catch (err: any) { setError(err.message); }
     }}>
       <div className="sm:col-span-2"><label className="label">Name</label><input className="input" required value={f.name} onChange={set('name')} placeholder="e.g. Car loan" /></div>
       <div><label className="label">Type</label>
@@ -41,6 +43,21 @@ function DebtForm({ debt, onSave, onCancel }: { debt?: Debt; onSave: (d: any) =>
       <div><label className="label">APR %</label><input className="input" type="number" step="0.01" value={f.apr} onChange={set('apr')} placeholder="e.g. 24.99" /></div>
       <div><label className="label">Min payment</label><input className="input" type="number" step="0.01" value={f.min_payment} onChange={set('min_payment')} /></div>
       <div className="sm:col-span-2"><label className="label">Next due date</label><input className="input" type="date" value={f.next_due_date} onChange={set('next_due_date')} /></div>
+      <label className="flex items-center gap-2 text-sm text-slate-300 sm:col-span-6">
+        <input type="checkbox" className="h-4 w-4 accent-emerald-500" checked={hasPromo}
+          onChange={e => { setHasPromo(e.target.checked); setF({ ...f, apr: e.target.checked ? '0' : f.apr, promo_end_date: e.target.checked ? f.promo_end_date : '' }); }} />
+        0% / promotional financing (furniture, electronics, balance transfer)
+      </label>
+      {hasPromo && (
+        <>
+          <div className="sm:col-span-2"><label className="label">Promo ends</label><input className="input" type="date" required value={f.promo_end_date} onChange={set('promo_end_date')} /></div>
+          <div><label className="label">APR after promo %</label><input className="input" type="number" step="0.01" value={f.regular_apr} onChange={set('regular_apr')} placeholder="e.g. 29.99" /></div>
+          <label className="flex items-center gap-2 text-sm text-slate-300 sm:col-span-3">
+            <input type="checkbox" className="h-4 w-4 accent-rose-500" checked={!!f.promo_deferred} onChange={e => setF({ ...f, promo_deferred: e.target.checked ? 1 : 0 })} />
+            Deferred interest — all back-interest is charged if not paid in full by the end date (most store/furniture cards)
+          </label>
+        </>
+      )}
       <div className="flex items-end gap-2 sm:col-span-4">
         <button className="btn-primary"><Check className="h-4 w-4" /> Save</button>
         <button type="button" className="btn-ghost" onClick={onCancel}><X className="h-4 w-4" /> Cancel</button>
@@ -202,10 +219,17 @@ export default function Debts(_: PageProps) {
                       <div className="mt-0.5 flex gap-1">
                         <Badge tone={d.source === 'plaid' ? 'info' : 'default'}>{d.source === 'plaid' ? 'Linked' : 'Manual'}</Badge>
                         <Badge>{d.kind}</Badge>
+                        {d.promo_end_date && <Badge tone={d.promo_deferred ? 'warn' : 'info'}>0% until {dateLabel(d.promo_end_date)} '{d.promo_end_date.slice(2, 4)}</Badge>}
                         {d.is_overdue ? <Badge tone="bad">Overdue</Badge> : null}
                       </div>
                     </td>
-                    <td className="td text-right font-semibold tabular-nums text-slate-100">{money(d.balance, true)}</td>
+                    <td className="td text-right font-semibold tabular-nums text-slate-100">{money(d.balance, true)}
+                      {d.promo_end_date && d.promo_deferred ? (() => {
+                        const [y, m] = d.promo_end_date.split('-').map(Number);
+                        const n = Math.max(1, (y - new Date().getFullYear()) * 12 + (m - 1 - new Date().getMonth()));
+                        return <p className="text-[11px] font-normal text-amber-400">Pay {money(d.balance / n, true)}/mo to beat the deadline</p>;
+                      })() : null}
+                    </td>
                     <td className="td text-right tabular-nums">{d.apr != null ? <span className={d.apr >= 20 ? 'text-rose-400' : 'text-slate-300'}>{pct(d.apr)}</span> : <button className="text-amber-400 hover:underline" onClick={() => setEditing(d.id)}>Add</button>}</td>
                     <td className="td text-right tabular-nums text-slate-300">{money(d.min_payment, true)}</td>
                     <td className="td text-slate-400">{dateLabel(d.next_due_date)}</td>

@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { PieChart as PieIcon, Repeat, Store, Target, Pencil } from 'lucide-react';
+import { PieChart as PieIcon, Store, Target, Pencil } from 'lucide-react';
 import type { PageProps } from '../App';
 import { useApi } from '../hooks/useApi';
-import { api, Spending as SpendingData, Recurring } from '../lib/api';
+import { api, Spending as SpendingData } from '../lib/api';
+import { RecurringReview } from '../components/RecurringReview';
 import { money, moneyCompact, monthLabel, categoryLabel, categoryColor, dateLabel } from '../lib/format';
 import { Card, CardHeader, Badge, Empty, PageHeader, ProgressBar, Spinner, chartTooltip, axisProps } from '../components/ui';
 
 const RANGES = [3, 6, 12];
-const FREQ_LABEL: Record<string, string> = { WEEKLY: 'Weekly', BIWEEKLY: 'Every 2 wks', SEMI_MONTHLY: 'Twice a month', MONTHLY: 'Monthly', ANNUALLY: 'Yearly', UNKNOWN: 'Irregular' };
 
 function BudgetCell({ category, budget, onSaved }: { category: string; budget: number | null; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
@@ -36,10 +36,7 @@ function BudgetCell({ category, budget, onSaved }: { category: string; budget: n
 export default function Spending(_: PageProps) {
   const [range, setRange] = useState(6);
   const { data, reload, loading } = useApi<SpendingData>(`/api/spending?months=${range}`);
-  const { data: recurring } = useApi<Recurring[]>('/api/recurring');
 
-  const bills = (recurring ?? []).filter(r => r.direction === 'outflow');
-  const billsMonthly = bills.reduce((s, r) => s + r.monthly, 0);
 
   const topCats = (data?.byCategory ?? []).filter(c => c.avgMonthly + c.thisMonth > 0).slice(0, 7).map(c => c.category);
   const chartData = (data?.byMonth ?? []).map(m => {
@@ -93,6 +90,8 @@ export default function Spending(_: PageProps) {
         </div>
       </Card>
 
+      <div className="mt-4"><RecurringReview /></div>
+
       <div className="mt-4 grid gap-4 xl:grid-cols-5">
         <Card className="overflow-hidden xl:col-span-3">
           <CardHeader title={<span className="flex items-center gap-2"><Target className="h-4 w-4 text-sky-400" /> Budgets</span>}
@@ -132,27 +131,6 @@ export default function Spending(_: PageProps) {
         </Card>
 
         <div className="space-y-4 xl:col-span-2">
-          <Card>
-            <CardHeader title={<span className="flex items-center gap-2"><Repeat className="h-4 w-4 text-violet-400" /> Subscriptions & bills</span>}
-              subtitle={`${bills.length} recurring · ${money(billsMonthly)}/month · ${money(billsMonthly * 12)}/year`} />
-            {bills.length ? (
-              <ul className="max-h-[420px] divide-y divide-white/[0.04] overflow-y-auto px-5 pb-3 pt-2">
-                {bills.map(b => (
-                  <li key={b.stream_id} className="flex items-center justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm text-slate-200">{b.merchant_name || b.description}</p>
-                      <p className="text-xs text-slate-500">{FREQ_LABEL[b.frequency] ?? b.frequency}{b.predicted_next_date && ` · next ${dateLabel(b.predicted_next_date)}`}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm tabular-nums text-slate-200">{money(b.average_amount, true)}</p>
-                      {b.category && <Badge>{categoryLabel(b.category)}</Badge>}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : <Empty icon={Repeat} title="No recurring charges detected yet" body="Plaid needs a few months of history to spot patterns." />}
-          </Card>
-
           <Card>
             <CardHeader title={<span className="flex items-center gap-2"><Store className="h-4 w-4 text-amber-400" /> Top merchants</span>} subtitle="Last 90 days" />
             {data?.topMerchants.length ? (

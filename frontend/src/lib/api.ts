@@ -40,6 +40,7 @@ export interface Item {
 export interface Debt {
   id: string; account_id: string | null; source: 'plaid' | 'manual'; name: string; kind: string; balance: number; apr: number | null;
   min_payment: number | null; next_due_date: string | null; statement_balance: number | null; credit_limit: number | null; is_overdue: number; hidden: number;
+  promo_end_date: string | null; promo_deferred: number | null; regular_apr: number | null;
 }
 
 export interface Transaction {
@@ -47,10 +48,10 @@ export interface Transaction {
   merchant_name: string | null; category: string; detailed_category: string | null; pending: number; logo_url: string | null;
 }
 
-export interface Recurring {
-  stream_id: string; direction: 'inflow' | 'outflow'; description: string; merchant_name: string | null; category: string | null;
-  frequency: string; average_amount: number; last_amount: number; last_date: string | null; predicted_next_date: string | null;
-  account_name: string | null; mask: string | null; monthly: number;
+export interface RecurringCharge {
+  key: string; name: string; category: string; frequency: string; count: number; average_amount: number; last_amount: number;
+  last_date: string; next_date: string; monthly: number; annual: number; accounts: string; logo_url: string | null;
+  decision: 'keep' | 'review' | 'cut'; note: string | null; related_count: number; related_total: number;
 }
 
 export interface IncomeSource { id: string; name: string; kind: string; monthly_amount: number; taxes_withheld: number; notes: string | null }

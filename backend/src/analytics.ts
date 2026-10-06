@@ -198,14 +198,91 @@ export function getSpending(monthsBack: number) {
   return { months, byMonth, byCategory, categories, topMerchants };
 }
 
-export function getRecurring() {
-  return db.prepare(`SELECT r.*, a.name AS account_name, a.mask FROM recurring_streams r LEFT JOIN accounts a USING(account_id)
-    WHERE r.is_active = 1 ORDER BY r.direction, r.average_amount DESC`).all();
+const FREQ_DAYS: [string, number, number][] = [['WEEKLY', 5, 9], ['BIWEEKLY', 12, 17], ['MONTHLY', 25, 36], ['QUARTERLY', 80, 100], ['ANNUALLY', 345, 385]];
+const PER_MONTH: Record<string, number> = { WEEKLY: 52 / 12, BIWEEKLY: 26 / 12, MONTHLY: 1, QUARTERLY: 1 / 3, ANNUALLY: 1 / 12 };
+
+export interface RecurringCharge {
+  key: string; name: string; category: string; frequency: string; count: number; average_amount: number; last_amount: number;
+  last_date: string; next_date: string; monthly: number; annual: number; accounts: string; logo_url: string | null;
+  decision: 'keep' | 'review' | 'cut'; note: string | null; related_count: number; related_total: number;
 }
 
-const FREQ_PER_MONTH: Record<string, number> = { WEEKLY: 52 / 12, BIWEEKLY: 26 / 12, SEMI_MONTHLY: 2, MONTHLY: 1, ANNUALLY: 1 / 12 };
-export function monthlyEquivalent(amount: number, frequency: string) {
-  return amount * (FREQ_PER_MONTH[frequency] ?? 1);
+// Repeat charges at a steady cadence and roughly steady amount, across every account including imported cards.
+export function detectRecurringCharges(): RecurringCharge[] {
+  const rows = db.prepare(`SELECT t.date, t.amount, COALESCE(t.merchant_name, t.name) AS name, t.category, t.logo_url,
+      a.name AS account_name, a.mask
+    FROM transactions t JOIN accounts a USING(account_id)
+    WHERE t.amount > 0 AND a.hidden = 0 AND t.category NOT IN ('TRANSFER_IN', 'TRANSFER_OUT', 'LOAN_PAYMENTS', 'INCOME')
+      AND COALESCE(t.detailed_category, '') != 'BANK_FEES_INTEREST_CHARGE'
+      AND t.date >= date('now', '-400 days') ORDER BY t.date`).all();
+  const decisions = new Map<string, any>(db.prepare('SELECT * FROM recurring_decisions').all().map((d: any) => [d.key, d]));
+
+  const byMerchant = new Map<string, any[]>();
+  for (const r of rows) {
+    const key = depositKey(r.name) || r.name.toLowerCase();
+    if (!byMerchant.has(key)) byMerchant.set(key, []);
+    byMerchant.get(key)!.push(r);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const evaluate = (key: string, list: any[], utility: boolean, mixed: boolean): RecurringCharge | null => {
+    const gaps = list.slice(1).map((r, i) => (Date.parse(r.date) - Date.parse(list[i].date)) / 864e5).filter(g => g > 3).sort((a, b) => a - b);
+    if (!gaps.length) return null;
+    const gap = gaps[Math.floor(gaps.length / 2)];
+    const freq = FREQ_DAYS.find(([, lo, hi]) => gap >= lo && gap <= hi);
+    if (!freq) return null;
+    // Coincidences happen: require repeats, more for frequent cadences and for stores you also shop at normally.
+    const minCount = { ANNUALLY: 2, QUARTERLY: 3, MONTHLY: 3, BIWEEKLY: 4, WEEKLY: 5 }[freq[0]]! + (mixed ? 1 : 0);
+    if (list.length < minCount) return null;
+    // Most gaps must match the cadence, or it's just a store you visit often.
+    if (gaps.filter(g => g >= freq[1] * 0.85 && g <= freq[2] * 1.15).length < gaps.length * 0.75) return null;
+    const amounts = list.slice(-6).map(r => r.amount);
+    const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+    const sd = Math.sqrt(amounts.reduce((s, a) => s + (a - avg) ** 2, 0) / amounts.length);
+    // Subscriptions bill a near-identical amount; utilities vary with usage.
+    if (sd / avg > (utility ? 0.45 : mixed ? 0.01 : 0.06)) return null;
+    const last = list[list.length - 1];
+    if ((Date.parse(today) - Date.parse(last.date)) / 864e5 > freq[2] * 1.5 + 7) return null;
+    const decision = decisions.get(key);
+    return {
+      key, name: last.name, category: last.category, frequency: freq[0], count: list.length,
+      average_amount: avg, last_amount: last.amount, last_date: last.date,
+      next_date: new Date(Date.parse(last.date) + gap * 864e5).toISOString().slice(0, 10),
+      monthly: avg * PER_MONTH[freq[0]], annual: avg * PER_MONTH[freq[0]] * 12,
+      accounts: [...new Set(list.map(r => `${r.account_name}${r.mask ? ' ••' + r.mask : ''}`))].join(', '),
+      logo_url: list.map(r => r.logo_url).find(Boolean) ?? null,
+      // Housing and utilities are essentials: default them to keep so what-ifs only weigh optional charges.
+      decision: decision?.decision ?? (last.category === 'RENT_AND_UTILITIES' ? 'keep' : 'review'), note: decision?.note ?? null, related_count: 0, related_total: 0,
+    };
+  };
+
+  const out: RecurringCharge[] = [];
+  for (const [key, list] of byMerchant) {
+    const utility = list[list.length - 1].category === 'RENT_AND_UTILITIES';
+    const whole = evaluate(key, list, utility, false);
+    if (whole) { out.push(whole); continue; }
+    if (utility) continue;
+    // A subscription can hide among normal purchases at the same brand (a $79.88 pass among park food), so look for exact-price repeats.
+    const clusters: any[][] = [];
+    for (const r of [...list].sort((x, y) => x.amount - y.amount)) {
+      const c = clusters[clusters.length - 1];
+      if (c && r.amount <= c[0].amount * 1.01 + 0.01) c.push(r); else clusters.push([r]);
+    }
+    const found = clusters.map(c => c.sort((x, y) => x.date.localeCompare(y.date)))
+      .map(c => evaluate(`${key} ${Math.round(c[0].amount)}`, c, false, true)).filter(Boolean) as RecurringCharge[];
+    out.push(...found.map(f => (found.length === 1 ? { ...f, key, decision: decisions.get(key)?.decision ?? f.decision, note: decisions.get(key)?.note ?? null } : f)));
+  }
+
+  // Usage evidence: other (non-recurring) spending at the same brand in the last 90 days, e.g. Amazon orders for Prime, park food for Disney.
+  const recentRows = rows.filter((r: any) => r.date >= new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10));
+  for (const c of out) {
+    const brand = c.key.split(' ')[0];
+    if (brand.length < 3) continue;
+    const related = recentRows.filter((r: any) => (depositKey(r.name) || '').split(' ')[0] === brand && Math.abs(r.amount - c.average_amount) > 0.5);
+    c.related_count = related.length;
+    c.related_total = related.reduce((s: number, r: any) => s + r.amount, 0);
+  }
+  return out.sort((a, b) => b.monthly - a.monthly);
 }
 
 export function estimatedMinPayment(d: any): number {
@@ -216,9 +293,26 @@ export function estimatedMinPayment(d: any): number {
 
 type Strategy = 'avalanche' | 'snowball' | 'minimum';
 
+// 0% promos: months left at 0%, the rate after, and the monthly payment that clears the balance in time.
+export function promoInfo(d: any, now = new Date()) {
+  if (!d.promo_end_date) return null;
+  const [y, m] = d.promo_end_date.split('-').map(Number);
+  const monthsLeft = (y - now.getFullYear()) * 12 + (m - 1 - now.getMonth());
+  if (monthsLeft < 0) return null;
+  return { monthsLeft, regularApr: d.regular_apr ?? 29.99, deferred: !!d.promo_deferred, pace: d.balance / Math.max(1, monthsLeft) };
+}
+
 export function simulatePayoff(strategy: Strategy, extra: number) {
+  const now = new Date();
   const debts = db.prepare('SELECT d.* FROM debts d LEFT JOIN accounts a USING(account_id) WHERE COALESCE(a.hidden, 0) = 0 AND d.balance > 0').all()
-    .map((d: any) => ({ id: d.id, name: d.name, balance: d.balance, apr: d.apr ?? 0, min: estimatedMinPayment(d), paidOffMonth: null as number | null }));
+    .map((d: any) => {
+      const promo = promoInfo(d, now);
+      // Deferred-interest promos must be cleared before they expire, so they get a payment that finishes on time.
+      const min = promo && promo.deferred ? Math.max(estimatedMinPayment(d), promo.pace) : estimatedMinPayment(d);
+      return { id: d.id, name: d.name, balance: d.balance, apr: d.apr ?? 0, min, paidOffMonth: null as number | null,
+        promoMonths: promo?.monthsLeft ?? 0, regularApr: promo?.regularApr ?? d.apr ?? 0, deferred: !!promo?.deferred, shadow: 0 };
+    });
+  const aprAt = (d: any, month: number) => (month <= d.promoMonths ? 0 : d.regularApr);
 
   const budget = debts.reduce((s: number, d: any) => s + d.min, 0) + (strategy === 'minimum' ? 0 : extra);
   const series: { month: number; balance: number }[] = [{ month: 0, balance: debts.reduce((s: number, d: any) => s + d.balance, 0) }];
@@ -229,7 +323,9 @@ export function simulatePayoff(strategy: Strategy, extra: number) {
     month++;
     for (const d of debts) {
       if (d.balance <= 0) continue;
-      const interest = d.balance * d.apr / 1200;
+      if (d.deferred && month <= d.promoMonths) d.shadow += d.balance * d.regularApr / 1200;
+      if (d.deferred && month === d.promoMonths + 1 && d.balance > 0.005) { d.balance += d.shadow; totalInterest += d.shadow; }
+      const interest = d.balance * aprAt(d, month) / 1200;
       d.balance += interest;
       totalInterest += interest;
     }
@@ -242,7 +338,7 @@ export function simulatePayoff(strategy: Strategy, extra: number) {
     }
     if (strategy !== 'minimum') {
       const order = debts.filter((d: any) => d.balance > 0)
-        .sort((a: any, b: any) => strategy === 'avalanche' ? b.apr - a.apr : a.balance - b.balance);
+        .sort((a: any, b: any) => strategy === 'avalanche' ? aprAt(b, month + 1) - aprAt(a, month + 1) : a.balance - b.balance);
       for (const d of order) {
         if (available <= 0) break;
         const pay = Math.min(d.balance, available);
@@ -337,7 +433,7 @@ export function buildSnapshot() {
       total_minimum_payments: overview.minPayments, monthly_interest_cost: overview.monthlyInterest, estimated_monthly_surplus: overview.surplus,
     },
     accounts: db.prepare('SELECT name, mask, type, subtype, current_balance, available_balance, credit_limit FROM accounts WHERE hidden = 0').all(),
-    debts: db.prepare('SELECT name, kind, balance, apr, min_payment, next_due_date, statement_balance, credit_limit, is_overdue, source FROM debts WHERE balance > 0').all(),
+    debts: db.prepare('SELECT name, kind, balance, apr, min_payment, next_due_date, statement_balance, credit_limit, is_overdue, source, promo_end_date, promo_deferred AS deferred_interest_if_not_paid_by_promo_end, regular_apr AS apr_after_promo FROM debts WHERE balance > 0').all(),
     income_sources: db.prepare('SELECT name, kind, monthly_amount, taxes_withheld, notes FROM income_sources').all(),
     income_note: overview.incomeSource === 'detected'
       ? 'No income sources were entered; monthly income is estimated from the repeat deposits below. Treat them as household income.'
@@ -346,8 +442,12 @@ export function buildSnapshot() {
       count: d.count, average_amount: Math.round(d.average_amount), frequency: d.frequency, est_monthly: Math.round(d.monthly), last_date: d.last_date })),
     monthly_deposits_by_month: overview.cashflow.map(c => ({ month: c.month, deposits: Math.round(c.income) })),
     manually_tracked_accounts: db.prepare(`SELECT name, type, current_balance, updated_at AS last_updated FROM accounts WHERE item_id = 'manual'`).all(),
-    recurring_bills_and_subscriptions: db.prepare(`SELECT COALESCE(merchant_name, description) AS name, category, frequency, average_amount, predicted_next_date
-      FROM recurring_streams WHERE direction = 'outflow' AND is_active = 1`).all(),
+    recurring_charges: {
+      policy: 'decision "keep" = household chose to keep it: never suggest cutting. "review" = evaluate whether it is justified, using related_count/related_total as usage evidence. "cut" = household is cancelling: count the savings from the next billing date.',
+      items: detectRecurringCharges().map(c => ({ name: c.name, category: c.category, frequency: c.frequency, amount: Math.round(c.average_amount * 100) / 100,
+        monthly: Math.round(c.monthly), annual: Math.round(c.annual), next: c.next_date, on: c.accounts, decision: c.decision, note: c.note,
+        other_purchases_same_brand_90d: c.related_count, other_spend_same_brand_90d: Math.round(c.related_total) })),
+    },
     spending_by_category: spending.byCategory,
     monthly_spending_trend: spending.byMonth.map(m => ({ month: m.month, total: m.total })),
     top_merchants_last_90_days: spending.topMerchants.map((m: any) => ({ merchant: m.merchant, category: m.category, total: m.total, count: m.count })),

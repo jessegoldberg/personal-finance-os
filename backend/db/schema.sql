@@ -134,3 +134,10 @@ CREATE TABLE IF NOT EXISTS planned_expenses (
   notes TEXT,
   estimate TEXT
 );
+
+CREATE TABLE IF NOT EXISTS recurring_decisions (
+  key TEXT PRIMARY KEY,
+  decision TEXT NOT NULL DEFAULT 'review',
+  note TEXT,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
