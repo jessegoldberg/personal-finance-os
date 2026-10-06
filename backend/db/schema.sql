@@ -102,3 +102,21 @@ CREATE TABLE IF NOT EXISTS ai_reports (
 CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date);
 CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(account_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_item ON accounts(item_id);
+
+CREATE TABLE IF NOT EXISTS properties (
+  id TEXT PRIMARY KEY,
+  address TEXT NOT NULL,
+  property_type TEXT DEFAULT 'Single Family',
+  bedrooms REAL,
+  bathrooms REAL,
+  sqft REAL,
+  year_built INTEGER,
+  purchase_price REAL,
+  purchase_date TEXT,
+  condition TEXT DEFAULT 'good',
+  notes TEXT,
+  manual_value REAL,
+  debt_ids TEXT DEFAULT '[]',
+  valuation TEXT,
+  valued_at TEXT
+);

@@ -1,4 +1,5 @@
 import { db, getSetting } from './db';
+import { homeSummary } from './valuation';
 
 // Plaid amounts: positive = money leaving the account, negative = money coming in.
 // Transfers and debt payments are excluded from "spending" so a card payment isn't counted twice.
@@ -129,9 +130,11 @@ export function getOverview() {
       .all(today, in14).map((r: any) => ({ ...r, kind: 'bill' })),
   ].sort((a, b) => a.date.localeCompare(b.date));
 
+  const home = homeSummary();
+  const homeValue = home?.value ?? 0;
   return {
-    netWorth: cash + investments - totalDebt,
-    cash, investments, totalDebt, minPayments, monthlyInterest,
+    netWorth: cash + investments + homeValue - totalDebt,
+    cash, investments, homeValue, homeEquity: home?.equity ?? null, totalDebt, minPayments, monthlyInterest,
     monthlyIncome: income,
     incomeSource: entered > 0 ? 'entered' : detected > 0 ? 'detected' : 'none',
     detectedIncome: detected,
@@ -278,6 +281,17 @@ export function buildSnapshot() {
     monthly_spending_trend: spending.byMonth.map(m => ({ month: m.month, total: m.total })),
     top_merchants_last_90_days: spending.topMerchants.map((m: any) => ({ merchant: m.merchant, category: m.category, total: m.total, count: m.count })),
     cashflow_from_transactions: overview.cashflow,
+    home: (() => {
+      const h = homeSummary();
+      if (!h) return null;
+      return {
+        estimated_value: h.value, value_basis: h.home.manual_value != null ? 'owner override' : 'valuation',
+        valuation_range: h.valuation ? [h.valuation.estimate.low, h.valuation.estimate.high] : null, valuation_confidence: h.valuation?.estimate.confidence ?? null,
+        valued_at: h.home.valued_at, secured_debts: h.debts, total_secured_debt: h.owed, equity: h.equity,
+        loan_to_value_pct: h.ltv != null ? Math.round(h.ltv * 1000) / 10 : null, borrowable_up_to_80_pct_ltv: h.borrowable_at_80,
+        market: h.valuation?.market ?? null, purchase_price: h.home.purchase_price, purchase_date: h.home.purchase_date,
+      };
+    })(),
     payoff_simulations: (['minimum', 'snowball', 'avalanche'] as Strategy[]).map(s => {
       const r = simulatePayoff(s, extra);
       return { strategy: s, extra_per_month: s === 'minimum' ? 0 : extra, months: r.months, debt_free: r.debtFreeDate, total_interest: Math.round(r.totalInterest), payoff_order: r.order };

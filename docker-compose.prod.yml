@@ -18,6 +18,7 @@ services:
       PLAID_ENV: ${PLAID_ENV:-sandbox}
       PLAID_REDIRECT_URI: ${PLAID_REDIRECT_URI}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      RENTCAST_API_KEY: ${RENTCAST_API_KEY:-}
       # Reverse proxy trust (CloudFront ZTNA will set headers)
       API_TRUST_PROXY: "true"
     volumes:

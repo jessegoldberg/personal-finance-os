@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LayoutDashboard, Receipt, PieChart, TrendingDown, Wallet, Sparkles, Landmark, RefreshCw, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Receipt, PieChart, TrendingDown, Wallet, Sparkles, Landmark, RefreshCw, Menu, X, Home as HomeIcon } from 'lucide-react';
 import { api } from './lib/api';
 import { relativeTime } from './lib/format';
 import { Spinner } from './components/ui';
@@ -11,11 +11,13 @@ import Debts from './pages/Debts';
 import Income from './pages/Income';
 import Advisor from './pages/Advisor';
 import Accounts from './pages/Accounts';
+import Home from './pages/Home';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, Component: Dashboard },
   { id: 'advisor', label: 'AI Advisor', icon: Sparkles, Component: Advisor },
   { id: 'debt', label: 'Debt Plan', icon: TrendingDown, Component: Debts },
+  { id: 'home', label: 'Home & Equity', icon: HomeIcon, Component: Home },
   { id: 'spending', label: 'Spending & Budgets', icon: PieChart, Component: Spending },
   { id: 'transactions', label: 'Transactions', icon: Receipt, Component: Transactions },
   { id: 'income', label: 'Income', icon: Wallet, Component: Income },

@@ -59,6 +59,7 @@ How to advise:
 - Budget suggestions must use the Plaid category codes exactly as provided.
 - Income: use income_sources when present. When income_basis is "detected", the repeat deposits ARE the household's income — build the plan on them (paychecks, side-gig payouts, grants) rather than saying income is unknown; mention which deposits you counted.
 - Some accounts are tracked manually from statement imports (manually_tracked_accounts); note if their last_updated is more than ~35 days old.
+- Home: if a home is present, weigh options like paying the HELOC down aggressively, refinancing/consolidating (only if LTV allows and the new rate beats the blended rate), or selling — always counting ~6-10% selling costs and the risk of turning unsecured debt into debt secured by the house. Use the market rates provided rather than guessing.
 - If data is thin (few transactions, missing APRs, no income entered), say so in missing_data and give the best plan possible with what exists.
 - Order action_plan chronologically, starting from today's date in the snapshot.`;
 

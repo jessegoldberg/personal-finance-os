@@ -63,7 +63,7 @@ export default function Dashboard({ onDataChanged }: PageProps) {
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Stat label="Net worth" value={money(o.netWorth)} icon={Landmark} tone={o.netWorth >= 0 ? 'default' : 'bad'}
-          hint={`${money(o.cash)} cash · ${money(o.investments)} invested`} />
+          hint={`${money(o.cash)} cash · ${money(o.investments)} invested${o.homeValue ? ` · ${money(o.homeValue)} home` : ''}`} />
         <Stat label="Total debt" value={money(o.totalDebt)} icon={TrendingDown} tone="bad" hint={`~${money(o.monthlyInterest)}/mo in interest`} />
         <Stat label="Monthly income" value={money(o.monthlyIncome)} icon={Wallet}
           hint={o.incomeSource === 'entered' ? 'From your income sources' : o.incomeSource === 'detected' ? <a href="#/income" className="text-amber-400">Estimated from deposits — confirm →</a> : <a href="#/income" className="text-emerald-400">Add income →</a>} />

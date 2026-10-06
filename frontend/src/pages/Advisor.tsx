@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Sparkles, AlertTriangle, Scissors, Target, CalendarCheck, Send, HelpCircle, Check, RefreshCw } from 'lucide-react';
 import type { PageProps } from '../App';
 import { useApi } from '../hooks/useApi';
-import { api, AdvisorReport } from '../lib/api';
+import { api, runJob, AdvisorReport } from '../lib/api';
 import { money, categoryLabel, monthLabel, relativeTime } from '../lib/format';
 import { Card, CardHeader, Badge, Empty, PageHeader, Spinner, ErrorNote } from '../components/ui';
 
@@ -48,7 +48,7 @@ function Chat() {
     setBusy(true);
     setError(null);
     try {
-      const { reply } = await api<{ reply: string }>('/api/advisor/chat', { body: { messages: next } });
+      const { reply } = await runJob<{ reply: string }>('/api/advisor/chat', { messages: next });
       setMessages([...next, { role: 'assistant', content: reply }]);
     } catch (e: any) {
       setError(e.message);
@@ -98,7 +98,7 @@ export default function Advisor(_: PageProps) {
     setRunning(true);
     setError(null);
     try {
-      setData(await api('/api/advisor/analyze', { body: {} }));
+      setData(await runJob('/api/advisor/analyze'));
     } catch (e: any) {
       setError(e.message);
       reload();
