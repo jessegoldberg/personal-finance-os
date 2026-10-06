@@ -120,3 +120,17 @@ CREATE TABLE IF NOT EXISTS properties (
   valuation TEXT,
   valued_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS planned_expenses (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT DEFAULT 'other',
+  event_date TEXT NOT NULL,
+  due_date TEXT,
+  amount REAL NOT NULL DEFAULT 0,
+  saved REAL NOT NULL DEFAULT 0,
+  recurring_yearly INTEGER DEFAULT 0,
+  people INTEGER,
+  notes TEXT,
+  estimate TEXT
+);

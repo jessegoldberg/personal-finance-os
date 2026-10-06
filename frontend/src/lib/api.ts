@@ -22,7 +22,7 @@ export async function runJob<T = any>(path: string, body: unknown = {}): Promise
 
 export interface Overview {
   netWorth: number; cash: number; investments: number; homeValue: number; homeEquity: number | null; totalDebt: number; minPayments: number; monthlyInterest: number;
-  monthlyIncome: number; incomeSource: 'entered' | 'detected' | 'none'; detectedIncome: number; avgMonthlySpending: number; monthSpending: number; surplus: number;
+  monthlyIncome: number; plannedMonthly: number; incomeSource: 'entered' | 'detected' | 'none'; detectedIncome: number; avgMonthlySpending: number; monthSpending: number; surplus: number;
   cashflow: { month: string; spending: number; income: number }[];
   upcoming: { name: string; date: string; amount: number; kind: 'debt' | 'bill' }[];
   lastSynced: string | null; hasData: boolean;
@@ -70,7 +70,7 @@ export interface PayoffResult {
 }
 
 export interface AdvisorReport {
-  created_at: string; headline: string; health_score: number; summary: string; monthly_surplus_estimate: number; recommended_extra_payment: number;
+  created_at: string; headline: string; health_score: number; summary: string; monthly_surplus_estimate: number; recommended_extra_payment: number; monthly_set_aside_for_life_events?: number;
   strategy: { method: string; rationale: string; debt_free_date: string | null; interest_saved_vs_minimums: number };
   action_plan: { when: string; action: string; amount: number | null; from_account: string | null; to_account: string | null; why: string; estimated_monthly_savings: number | null }[];
   spending_cuts: { target: string; current_monthly: number; suggested_monthly: number; monthly_savings: number; reason: string }[];
@@ -117,4 +117,25 @@ export interface HomeSummary {
   valuation: HomeValuation | null;
   debts: { id: string; name: string; kind: string; balance: number; apr: number | null; min_payment: number | null }[];
   value: number | null; owed: number; equity: number | null; ltv: number | null; borrowable_at_80: number | null; borrowable_at_85: number | null;
+}
+
+export interface PlannedItem {
+  id: string; name: string; category: string; event_date: string; due_date: string | null; amount: number; saved: number; recurring_yearly: number;
+  people: number | null; notes: string | null; estimate: { typical_cost: number; best_time_to_buy: string; tips: string } | null;
+  next_event_date: string; next_due_date: string; past: boolean; months_to_save: number; remaining: number; monthly_set_aside: number;
+}
+export interface PlannedData {
+  items: PlannedItem[];
+  totals: { monthly_set_aside: number; next_12_months: number; still_to_save: number; missing_amounts: string[]; by_month: { month: string; amount: number; items: string[] }[] };
+}
+
+export interface Outlook {
+  created_at: string; headline: string;
+  fed: { current_target_range: string; prime_rate: number; meetings: { date: string; expectation: string; market_odds: string }[]; path_summary: string };
+  mortgage: { current_30yr: number; current_15yr: number; direction: 'falling' | 'flat' | 'rising' | 'uncertain'; forecasts: { source: string; period: string; rate_30yr: number }[]; summary: string };
+  housing: { market: string; forecasts: { source: string; period: string; change_pct: number }[]; inventory_and_days_on_market: string; insurance_and_tax_trends: string; best_months_to_list: string; summary: string };
+  impacts: { item: string; effect: string; monthly_dollars: number; when: string }[];
+  timing: { decision: string; window: string; rationale: string; watch_for: string; confidence: 'high' | 'medium' | 'low' }[];
+  purchase_estimates: { expense_id: string; typical_cost: number; best_time_to_buy: string; tips: string }[];
+  sources: { title: string; url: string }[];
 }

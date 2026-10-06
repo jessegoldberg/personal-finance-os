@@ -3,6 +3,7 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
 import { db } from './db';
 import { buildSnapshot } from './analytics';
+import { refreshOutlook, outlookAgeDays } from './outlook';
 
 const MODEL = 'claude-opus-5-5';
 const client = new Anthropic();
@@ -13,6 +14,7 @@ const ReportSchema = z.object({
   summary: z.string().describe('3-5 sentence plain-English assessment'),
   monthly_surplus_estimate: z.number(),
   recommended_extra_payment: z.number().describe('Extra dollars per month to put toward debt beyond minimums'),
+  monthly_set_aside_for_life_events: z.number().describe('Monthly amount going to planned-expense sinking funds (holidays, birthdays, trips)'),
   strategy: z.object({
     method: z.enum(['avalanche', 'snowball', 'hybrid']),
     rationale: z.string(),
@@ -71,6 +73,8 @@ How to advise:
 - Income: use income_sources when present. When income_basis is "detected", the repeat deposits ARE the household's income — build the plan on them (paychecks, side-gig payouts, grants) rather than saying income is unknown; mention which deposits you counted.
 - Some accounts are tracked manually from statement imports (manually_tracked_accounts); note if their last_updated is more than ~35 days old.
 - Home: when a home is present you MUST fill home_options with at least: stay (baseline), each sell-and-buy option in home.scenarios.sell_and_buy, sell-and-rent if rent data exists, and equity-based consolidation (HELOC draw or cash-out refi). Judge every option on TOTAL monthly outflow (housing + all debt minimums), total interest and how fast consumer debt disappears, not on mortgage rates alone: a sale that clears all consumer debt can free more cash per month than keeping a low-rate mortgage, even at a higher new rate on a smaller loan. Use the scenario numbers as computed; account for selling costs (already included), moving costs (not included, ~$3-6k), escrow/property-tax and insurance changes, market softness and disruption to the family. Never dismiss an option without its numbers, and mention in the summary if a home option beats the current path on monthly cash flow. Remember equity-based consolidation turns unsecured debt into debt secured by the house.
+- Life comes first, within reason: planned_life_expenses (holidays, birthdays, trips) are commitments the family has made. Build sinking-fund transfers for them into the action plan (e.g. "Each payday move $X to savings for Christmas") BEFORE extra debt payments, never list them as spending cuts, and don't schedule big debt lump sums in months when they need that cash. You may suggest cheaper ways to do the same thing (booking windows, paying in cash rather than on high-APR cards, card rewards) and flag any planned expense with no amount yet.
+- Timing: use market_outlook (Fed path, mortgage forecasts, local housing season) to schedule rate-sensitive decisions — when to list or not list the house, at what rate a refinance would pay off, whether expected cuts lower the HELOC/card cost — and say what to watch. Present forecasts as forecasts, not facts.
 - If data is thin (few transactions, missing APRs, no income entered), say so in missing_data and give the best plan possible with what exists.
 - Order action_plan chronologically, starting from today's date in the snapshot.`;
 
@@ -80,6 +84,10 @@ function requireClient() {
 }
 
 export async function generateReport(): Promise<AdvisorReport & { created_at: string }> {
+  // Rate/market timing is part of the plan; refresh it weekly. A failed refresh shouldn't block the plan.
+  if (outlookAgeDays() > 7) {
+    try { await refreshOutlook(); } catch (e: any) { console.warn('Outlook refresh failed:', e.message); }
+  }
   const snapshot = buildSnapshot();
   const stream = requireClient().beta.messages.stream({
     model: MODEL,

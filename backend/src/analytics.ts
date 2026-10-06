@@ -1,7 +1,8 @@
 import { db, getSetting } from './db';
 import { homeSummary } from './valuation';
+import { listPlanned } from './planner';
 
-function amortPayment(principal: number, apr: number, months: number) {
+export function amortPayment(principal: number, apr: number, months: number) {
   if (principal <= 0) return 0;
   const r = apr / 1200;
   return r === 0 ? principal / months : principal * r / (1 - Math.pow(1 + r, -months));
@@ -115,6 +116,7 @@ export function getOverview() {
   const entered = monthlyIncomeTotal();
   const detected = detectDeposits().reduce((s, d) => s + d.monthly, 0);
   const income = entered > 0 ? entered : detected;
+  const planned = listPlanned().totals;
   const avgSpending = avgMonthlySpending();
 
   const thisMonth = monthKey(new Date());
@@ -152,7 +154,9 @@ export function getOverview() {
     detectedIncome: detected,
     avgMonthlySpending: avgSpending,
     monthSpending,
-    surplus: income - avgSpending - minPayments,
+    plannedMonthly: planned.monthly_set_aside,
+    // What's genuinely free for extra debt payments after living costs, minimums and saving for planned events.
+    surplus: income - avgSpending - minPayments - planned.monthly_set_aside,
     cashflow,
     upcoming,
     lastSynced: db.prepare('SELECT MAX(last_synced_at) AS t FROM items').get().t,
@@ -359,6 +363,24 @@ export function buildSnapshot() {
         market: h.valuation?.market ?? null, purchase_price: h.home.purchase_price, purchase_date: h.home.purchase_date,
         escrow_monthly: h.home.escrow_monthly, scenarios: homeScenarios(),
       };
+    })(),
+    planned_life_expenses: (() => {
+      const p = listPlanned();
+      return {
+        policy: 'Household has committed to these. Fund them; do not cut them. Already subtracted from estimated_monthly_surplus.',
+        monthly_set_aside_total: Math.round(p.totals.monthly_set_aside), still_to_save: Math.round(p.totals.still_to_save),
+        amounts_not_entered_yet: p.totals.missing_amounts,
+        items: p.items.filter(i => !i.past).map(i => ({ name: i.name, event: i.next_event_date, money_needed_by: i.next_due_date, amount: i.amount,
+          already_saved: i.saved, monthly_set_aside: Math.round(i.monthly_set_aside), recurring_yearly: !!i.recurring_yearly, people: i.people, notes: i.notes,
+          ai_cost_estimate: i.estimate })),
+        cash_needed_by_month: p.totals.by_month.filter(m => m.amount > 0),
+      };
+    })(),
+    market_outlook: (() => {
+      const raw = getSetting('market_outlook');
+      if (!raw) return null;
+      const o = JSON.parse(raw);
+      return { as_of: o.created_at, headline: o.headline, fed: o.fed, mortgage: o.mortgage, housing: o.housing, impacts: o.impacts, timing: o.timing };
     })(),
     payoff_simulations: (['minimum', 'snowball', 'avalanche'] as Strategy[]).map(s => {
       const r = simulatePayoff(s, extra);

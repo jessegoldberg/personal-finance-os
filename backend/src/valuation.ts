@@ -1,10 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
 import { db } from './db';
-
-const MODEL = 'claude-opus-5-5';
-const client = new Anthropic();
+import { webResearch, structured, requireKey } from './ai';
 
 export interface Home {
   id: string; address: string; property_type: string | null; bedrooms: number | null; bathrooms: number | null; sqft: number | null;
@@ -128,9 +124,7 @@ async function research(home: Home, rentcast: any, ppsf: ReturnType<typeof ppsfC
     })),
   } : null;
 
-  const messages: Anthropic.Beta.BetaMessageParam[] = [{
-    role: 'user',
-    content: `Value this home as of ${new Date().toISOString().slice(0, 10)}.
+  return webResearch(RESEARCH_SYSTEM, `Value this home as of ${new Date().toISOString().slice(0, 10)}.
 
 Owner-provided facts: ${JSON.stringify(facts)}
 
@@ -138,50 +132,18 @@ Property-data API result (RentCast AVM; comps are listing-based, "Inactive" usua
 
 Price-per-sqft check from those comps: ${ppsf ? JSON.stringify(ppsf) : 'unavailable'}
 
-Research with web search, then write your full appraisal notes: subject facts, assessed value, each public estimate, each comp (address, price, date, status, sqft, beds/baths, distance, source URL), market trend, current mortgage/HELOC rates, typical rent for a similar home, typical price of a smaller home nearby, and your reconciled value with low/high range and confidence.`,
-  }];
-
-  let message: Anthropic.Beta.BetaMessage | null = null;
-  for (let i = 0; i < 5; i++) {
-    message = await client.beta.messages.stream({
-      model: MODEL,
-      max_tokens: 32000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'high' },
-      system: RESEARCH_SYSTEM,
-      tools: [
-        { type: 'web_search_20260209', name: 'web_search', max_uses: 15, user_location: { type: 'approximate', country: 'US' } },
-        { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 8 },
-      ],
-      messages,
-    }).finalMessage();
-    if (message.stop_reason !== 'pause_turn') break;
-    // Server-side tool loop hit its iteration cap; resend so it resumes where it left off.
-    messages.splice(1, messages.length - 1, { role: 'assistant', content: message.content });
-  }
-  if (!message || message.stop_reason === 'refusal') throw new Error('Valuation research was declined. Try again.');
-  return message.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map(b => b.text).join('\n');
+Research with web search, then write your full appraisal notes: subject facts, assessed value, each public estimate, each comp (address, price, date, status, sqft, beds/baths, distance, source URL), market trend, current mortgage/HELOC rates, typical rent for a similar home, typical price of a smaller home nearby, and your reconciled value with low/high range and confidence.`);
 }
 
 async function structure(notes: string, home: Home) {
-  const message = await client.beta.messages.stream({
-    model: MODEL,
-    max_tokens: 16000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
-    output_config: { effort: 'medium', format: betaZodOutputFormat(ValuationSchema) },
-    system: 'Convert these appraisal notes into the required JSON exactly. Copy numbers and URLs as written; use null where the notes have no value. Mortgage rates are percentages (e.g. 6.3).',
-    messages: [{ role: 'user', content: `Subject: ${home.address}\n\nAppraisal notes:\n${notes}` }],
-  }).finalMessage();
-  if (message.stop_reason === 'refusal' || message.stop_reason === 'max_tokens') throw new Error('Could not structure the valuation. Try again.');
-  const text = message.content.find((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')?.text ?? '{}';
-  return denull(ValuationSchema.parse(JSON.parse(text)));
+  const raw = await structured(ValuationSchema,
+    'Convert these appraisal notes into the required JSON exactly. Copy numbers and URLs as written; use 0 or an empty string where the notes have no value. Mortgage rates are percentages (e.g. 6.3).',
+    `Subject: ${home.address}\n\nAppraisal notes:\n${notes}`);
+  return denull(raw);
 }
 
 export async function valuateHome(): Promise<Valuation> {
-  if (!process.env.ANTHROPIC_API_KEY) throw Object.assign(new Error('ANTHROPIC_API_KEY is not set on the server'), { status: 503 });
+  requireKey();
   const home = getHome();
   if (!home) throw Object.assign(new Error('Add your home address first'), { status: 400 });
 

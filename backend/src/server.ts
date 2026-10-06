@@ -10,6 +10,8 @@ import { parseStatement, importStatement, setManualBalance } from './importer';
 import { generateReport, latestReport, chat } from './advisor';
 import { valuateHome, homeSummary } from './valuation';
 import { startJob, getJob } from './jobs';
+import { listPlanned } from './planner';
+import { refreshOutlook, latestOutlook } from './outlook';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -222,6 +224,29 @@ app.get('/api/jobs/:id', route(req => {
   if (!job) throw Object.assign(new Error('Job not found (the server may have restarted)'), { status: 404 });
   return job;
 }));
+
+// ---- Planned life expenses ----
+app.get('/api/planned', route(() => listPlanned()));
+
+app.post('/api/planned', route(req => {
+  const b = req.body ?? {};
+  if (!b.name || !/^\d{4}-\d{2}-\d{2}$/.test(b.event_date || '')) throw Object.assign(new Error('name and event_date (YYYY-MM-DD) required'), { status: 400 });
+  const id = b.id || newId('plan');
+  db.prepare(`INSERT INTO planned_expenses (id, name, category, event_date, due_date, amount, saved, recurring_yearly, people, notes)
+    VALUES (@id, @name, @category, @event_date, @due_date, @amount, @saved, @recurring_yearly, @people, @notes)
+    ON CONFLICT(id) DO UPDATE SET name = excluded.name, category = excluded.category, event_date = excluded.event_date, due_date = excluded.due_date,
+      amount = excluded.amount, saved = excluded.saved, recurring_yearly = excluded.recurring_yearly, people = excluded.people, notes = excluded.notes`).run({
+    id, name: String(b.name), category: b.category || 'other', event_date: b.event_date, due_date: b.due_date || null,
+    amount: num(b.amount) ?? 0, saved: num(b.saved) ?? 0, recurring_yearly: b.recurring_yearly ? 1 : 0, people: num(b.people), notes: b.notes || null,
+  });
+  return listPlanned();
+}));
+
+app.delete('/api/planned/:id', route(req => { db.prepare('DELETE FROM planned_expenses WHERE id = ?').run(req.params.id); return listPlanned(); }));
+
+// ---- Market outlook ----
+app.get('/api/outlook', route(() => ({ outlook: latestOutlook() })));
+app.post('/api/outlook/refresh', route(() => ({ jobId: startJob('outlook', async () => ({ outlook: await refreshOutlook() })) })));
 
 // ---- Home ----
 app.get('/api/home', route(() => homeSummary()));

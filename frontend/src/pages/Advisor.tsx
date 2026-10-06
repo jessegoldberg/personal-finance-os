@@ -159,6 +159,7 @@ export default function Advisor(_: PageProps) {
             <Card className="p-5">
               <p className="text-xs uppercase tracking-wider text-slate-500">Extra toward debt</p>
               <p className="mt-2 text-xl font-semibold text-white">{money(report.recommended_extra_payment)}<span className="text-sm text-slate-500">/mo</span></p>
+              {report.monthly_set_aside_for_life_events ? <p className="mt-1 text-xs text-slate-500">plus {money(report.monthly_set_aside_for_life_events)}/mo saved for life events</p> : null}
             </Card>
             <Card className="p-5">
               <p className="text-xs uppercase tracking-wider text-slate-500">Interest saved</p>
