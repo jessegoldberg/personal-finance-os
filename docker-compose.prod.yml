@@ -58,3 +58,6 @@ volumes:
 networks:
   pfo_network:
     driver: bridge
+    # Fixed interface name so the hermes firewall rule allowing Ollama (port 11434) survives network recreation.
+    driver_opts:
+      com.docker.network.bridge.name: br-pfo
