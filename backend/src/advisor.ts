@@ -4,9 +4,7 @@ import { z } from 'zod';
 import { db } from './db';
 import { buildSnapshot } from './analytics';
 import { refreshOutlook, outlookAgeDays } from './outlook';
-
-const MODEL = 'claude-opus-5-5';
-const client = new Anthropic();
+import { MODEL, client, FALLBACK, requireKey, recordClaude, compactJson } from './ai';
 
 const ReportSchema = z.object({
   headline: z.string().describe('One sentence on where the household stands right now'),
@@ -78,28 +76,23 @@ How to advise:
 - If data is thin (few transactions, missing APRs, no income entered), say so in missing_data and give the best plan possible with what exists.
 - Order action_plan chronologically, starting from today's date in the snapshot.`;
 
-function requireClient() {
-  if (!process.env.ANTHROPIC_API_KEY) throw Object.assign(new Error('ANTHROPIC_API_KEY is not set on the server'), { status: 503 });
-  return client;
-}
-
 export async function generateReport(): Promise<AdvisorReport & { created_at: string }> {
   // Rate/market timing is part of the plan; refresh it weekly. A failed refresh shouldn't block the plan.
   if (outlookAgeDays() > 7) {
     try { await refreshOutlook(); } catch (e: any) { console.warn('Outlook refresh failed:', e.message); }
   }
   const snapshot = buildSnapshot();
-  const stream = requireClient().beta.messages.stream({
+  requireKey();
+  const message = await client.beta.messages.stream({
     model: MODEL,
     max_tokens: 32000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
+    ...FALLBACK,
     thinking: { type: 'adaptive' },
     output_config: { effort: 'high', format: betaZodOutputFormat(ReportSchema) },
     system: SYSTEM,
-    messages: [{ role: 'user', content: `Here is our current financial snapshot. Build our plan.\n\n${JSON.stringify(snapshot)}` }],
-  });
-  const message = await stream.finalMessage();
+    messages: [{ role: 'user', content: `Here is our current financial snapshot. Build our plan.\n\n${compactJson(snapshot)}` }],
+  }).finalMessage();
+  recordClaude('plan', message.usage);
 
   if (message.stop_reason === 'refusal') throw new Error('The advisor declined this request. Try again.');
   if (message.stop_reason === 'max_tokens') throw new Error('The advisor response was cut off. Try again.');
@@ -115,28 +108,29 @@ export function latestReport() {
   return row ? { ...JSON.parse(row.report), created_at: row.created_at } : null;
 }
 
+const CHAT_INSTRUCTIONS = `${SYSTEM}
+
+You are now answering follow-up questions in a chat. Answer directly in a few short paragraphs or a tight list, with concrete numbers from the data. Plain text only — no markdown headers or tables.`;
+
 export async function chat(history: { role: 'user' | 'assistant'; content: string }[]): Promise<string> {
-  const snapshot = buildSnapshot();
+  requireKey();
   const latest = latestReport();
-  const stream = requireClient().beta.messages.stream({
+  // Stable instructions, then the data block marked for caching: follow-ups within a few minutes re-read the
+  // snapshot at ~10% of the normal input price. Top-level cache_control also caches the growing conversation.
+  const message = await client.beta.messages.stream({
     model: MODEL,
-    max_tokens: 16000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
+    max_tokens: 8000,
+    ...FALLBACK,
     thinking: { type: 'adaptive' },
-    output_config: { effort: 'medium' },
-    system: `${SYSTEM}
-
-You are now answering follow-up questions in a chat. Answer directly in a few short paragraphs or a tight list, with concrete numbers from the data. Plain text only — no markdown headers or tables.
-
-Current snapshot:
-${JSON.stringify(snapshot)}
-
-Most recent plan you produced:
-${latest ? JSON.stringify(latest) : 'None yet.'}`,
-    messages: history.slice(-20),
-  });
-  const message = await stream.finalMessage();
+    output_config: { effort: 'low' },
+    cache_control: { type: 'ephemeral' },
+    system: [
+      { type: 'text', text: CHAT_INSTRUCTIONS },
+      { type: 'text', text: `Current snapshot:\n${compactJson(buildSnapshot())}\n\nMost recent plan you produced:\n${latest ? compactJson(latest) : 'None yet.'}`, cache_control: { type: 'ephemeral' } },
+    ],
+    messages: history.slice(-10),
+  }).finalMessage();
+  recordClaude('chat', message.usage);
   if (message.stop_reason === 'refusal') return 'I can’t help with that one — try rephrasing the question.';
   return message.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map(b => b.text).join('\n').trim();
 }

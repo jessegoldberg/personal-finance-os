@@ -132,7 +132,9 @@ async function syncTransactions(itemId: string, token: string, cursor: string | 
     INSERT INTO transactions (transaction_id, account_id, item_id, amount, date, name, merchant_name, category, detailed_category, pending, logo_url, payment_channel)
     VALUES (@transaction_id, @account_id, @item_id, @amount, @date, @name, @merchant_name, @category, @detailed_category, @pending, @logo_url, @payment_channel)
     ON CONFLICT(transaction_id) DO UPDATE SET amount = excluded.amount, date = excluded.date, name = excluded.name,
-      merchant_name = excluded.merchant_name, category = excluded.category, detailed_category = excluded.detailed_category,
+      merchant_name = excluded.merchant_name,
+      category = CASE WHEN transactions.category_source IS NOT NULL THEN transactions.category ELSE excluded.category END,
+      detailed_category = excluded.detailed_category,
       pending = excluded.pending, logo_url = excluded.logo_url`);
   const remove = db.prepare('DELETE FROM transactions WHERE transaction_id = ?');
   const knownAccount = db.prepare('SELECT 1 FROM accounts WHERE account_id = ?');

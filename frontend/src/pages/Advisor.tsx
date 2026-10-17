@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sparkles, AlertTriangle, Scissors, Target, CalendarCheck, Send, HelpCircle, Check, RefreshCw, Home as HomeIcon } from 'lucide-react';
+import { Sparkles, AlertTriangle, Scissors, Target, CalendarCheck, Send, HelpCircle, Check, RefreshCw, Home as HomeIcon, Cpu } from 'lucide-react';
 import type { PageProps } from '../App';
 import { useApi } from '../hooks/useApi';
-import { api, runJob, AdvisorReport } from '../lib/api';
+import { api, runJob, AdvisorReport, LocalStatus, localReady } from '../lib/api';
 import { money, categoryLabel, monthLabel, relativeTime } from '../lib/format';
 import { Card, CardHeader, Badge, Empty, PageHeader, Spinner, ErrorNote } from '../components/ui';
 
@@ -31,56 +31,100 @@ const SUGGESTIONS = [
   'What happens if I put an extra $300/month toward debt?',
 ];
 
+type ChatMessage = { role: 'user' | 'assistant'; content: string; provider?: 'local' | 'claude' };
+
 function Chat() {
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const { data: local } = useApi<LocalStatus>('/api/ai/local/status');
+  const [mode, setMode] = useState<'local' | 'claude' | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'local' | 'claude' | null>(null);
+  const [error, setError] = useState<{ message: string; text: string; provider: 'local' | 'claude' } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const canLocal = localReady(local);
+  const active = mode ?? (canLocal ? 'local' : 'claude');
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, busy]);
 
-  const send = async (text: string) => {
+  // The user picks the provider; a local failure never silently falls through to the paid API.
+  const send = async (text: string, provider = active) => {
     if (!text.trim() || busy) return;
     const next = [...messages, { role: 'user' as const, content: text.trim() }];
     setMessages(next);
     setInput('');
-    setBusy(true);
+    setBusy(provider);
     setError(null);
     try {
-      const { reply } = await runJob<{ reply: string }>('/api/advisor/chat', { messages: next });
-      setMessages([...next, { role: 'assistant', content: reply }]);
+      const path = provider === 'local' ? '/api/ai/local/chat' : '/api/advisor/chat';
+      const { reply } = await runJob<{ reply: string }>(path, { messages: next.map(({ role, content }) => ({ role, content })) });
+      setMessages([...next, { role: 'assistant', content: reply, provider }]);
     } catch (e: any) {
-      setError(e.message);
+      // Preserve the user's question so nothing is lost.
+      setMessages(messages);
+      setInput(text);
+      setError({ message: e.message, text, provider });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   return (
     <Card className="flex flex-col">
-      <CardHeader title="Ask your advisor" subtitle="Answers use your live balances, debts, income and spending" />
+      <CardHeader title="Ask your advisor" subtitle="Answers use your live balances, debts, income and spending"
+        action={
+          <div className="flex rounded-lg border border-white/10 p-0.5 text-xs">
+            <button disabled={!canLocal} onClick={() => setMode('local')} title={canLocal ? 'Runs on your own server — no API cost' : (local?.error ?? 'Local model not configured')}
+              className={`rounded-md px-2.5 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-40 ${active === 'local' ? 'bg-white/10 text-white' : 'text-slate-400'}`}>
+              <Cpu className="mr-1 inline h-3 w-3" />Quick · local
+            </button>
+            <button onClick={() => setMode('claude')} title="Full analysis with Claude (uses API credits)"
+              className={`rounded-md px-2.5 py-1 font-medium ${active === 'claude' ? 'bg-white/10 text-white' : 'text-slate-400'}`}>
+              <Sparkles className="mr-1 inline h-3 w-3" />Deep · Claude
+            </button>
+          </div>
+        } />
       <div className="max-h-[480px] min-h-[180px] flex-1 space-y-3 overflow-y-auto px-5 py-4">
         {!messages.length && (
-          <div className="flex flex-wrap gap-2">
-            {SUGGESTIONS.map(s => (
-              <button key={s} onClick={() => send(s)} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-slate-300 hover:bg-white/[0.07]">{s}</button>
-            ))}
-          </div>
+          <>
+            <p className="text-xs text-slate-500">
+              {active === 'local'
+                ? 'Quick answers from a summary of your numbers, on your own server — free, ~30–60 seconds. Use Deep for planning questions.'
+                : 'Full analysis of every account and your latest plan, using Claude API credits.'}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTIONS.map(s => (
+                <button key={s} onClick={() => send(s)} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-slate-300 hover:bg-white/[0.07]">{s}</button>
+              ))}
+            </div>
+          </>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : ''}`}>
+          <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
               m.role === 'user' ? 'bg-emerald-500/15 text-emerald-50' : 'bg-white/[0.04] text-slate-200'}`}>{m.content}</div>
+            {m.provider && <span className="mt-1 text-[10px] uppercase tracking-wider text-slate-600">{m.provider === 'local' ? `local · ${local?.model ?? ''}` : 'claude'}</span>}
           </div>
         ))}
-        {busy && <div className="flex items-center gap-2 text-sm text-slate-500"><Spinner /> Thinking through your numbers…</div>}
-        <ErrorNote error={error} />
+        {busy && (
+          <div className="flex items-center gap-2 text-sm text-slate-500"><Spinner />
+            {busy === 'local' ? 'Local model is working — usually 30–60 seconds…' : 'Thinking through your numbers…'}
+          </div>
+        )}
+        {error && (
+          <div className="space-y-2">
+            <ErrorNote error={error.message} />
+            {error.provider === 'local' && (
+              <button className="btn-secondary text-xs" onClick={() => { setMode('claude'); send(error.text, 'claude'); }}>
+                <Sparkles className="h-3.5 w-3.5" /> Ask Claude instead (uses API credits)
+              </button>
+            )}
+          </div>
+        )}
         <div ref={endRef} />
       </div>
       <form className="flex gap-2 border-t border-white/[0.06] p-3" onSubmit={e => { e.preventDefault(); send(input); }}>
-        <input className="input" placeholder="Ask anything about your money…" value={input} onChange={e => setInput(e.target.value)} />
-        <button className="btn-primary" disabled={busy || !input.trim()} aria-label="Send"><Send className="h-4 w-4" /></button>
+        <input className="input" placeholder={active === 'local' ? 'Quick question about your money…' : 'Ask anything about your money…'} value={input} onChange={e => setInput(e.target.value)} />
+        <button className="btn-primary" disabled={!!busy || !input.trim()} aria-label="Send"><Send className="h-4 w-4" /></button>
       </form>
     </Card>
   );

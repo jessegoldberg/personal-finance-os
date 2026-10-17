@@ -141,3 +141,18 @@ CREATE TABLE IF NOT EXISTS recurring_decisions (
   note TEXT,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  provider TEXT NOT NULL,
+  feature TEXT NOT NULL,
+  model TEXT,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_read_tokens INTEGER DEFAULT 0,
+  cache_write_tokens INTEGER DEFAULT 0,
+  web_searches INTEGER DEFAULT 0,
+  seconds REAL,
+  ok INTEGER DEFAULT 1
+);

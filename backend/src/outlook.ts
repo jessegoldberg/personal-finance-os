@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { db, getSetting, setSetting } from './db';
-import { webResearch, structured } from './ai';
+import { webResearch, structured, compactJson } from './ai';
 import { homeSummary } from './valuation';
 import { homeScenarios, amortPayment } from './analytics';
 import { listPlanned } from './planner';
@@ -65,11 +65,11 @@ export async function refreshOutlook(): Promise<Outlook> {
   const needsEstimate = planned.items.filter(i => !i.past && !i.amount);
   const today = new Date().toISOString().slice(0, 10);
 
-  const notes = await webResearch(SYSTEM, `Today is ${today}. Build a rate and market timing outlook for the next 12-18 months.
+  const notes = await webResearch('outlook', SYSTEM, `Today is ${today}. Build a rate and market timing outlook for the next 12-18 months.
 
 Location: ${home?.home.address ?? 'unknown (US)'}
 Home: ${home ? JSON.stringify({ value: home.value, owed: home.owed, equity: home.equity, considering: 'stay vs refinance vs sell and downsize/rent' }) : 'none entered'}
-Rate sensitivity (computed from their accounts): ${JSON.stringify(rateSensitivity())}
+Rate sensitivity (computed from their accounts): ${compactJson(rateSensitivity())}
 Family calendar (planned expenses, next 12 months): ${JSON.stringify(planned.items.filter(i => !i.past).map(i => ({ id: i.id, name: i.name, date: i.next_event_date, amount: i.amount, people: i.people, notes: i.notes })))}
 Household notes: ${getSetting('household_notes') ?? ''}
 
@@ -79,9 +79,9 @@ Research and report:
 3. Local housing market for their metro: price forecasts, inventory, days on market, the best months to list, and property-insurance and tax trends.
 4. Dollar impact on their variable-rate debts and on a possible new mortgage, using the sensitivity numbers.
 5. Timing windows for: listing/selling the home, refinancing (what rate would make it worthwhile), prioritizing HELOC vs card payoff under the expected rate path, and any other rate-driven decision.
-6. For these planned purchases with no amount yet, find typical current costs for the stated party and the best time to buy/book: ${needsEstimate.length ? JSON.stringify(needsEstimate.map(i => ({ id: i.id, name: i.name, date: i.next_event_date, people: i.people, notes: i.notes }))) : 'none'}.`, { searches: 20, fetches: 8 });
+6. For these planned purchases with no amount yet, find typical current costs for the stated party and the best time to buy/book: ${needsEstimate.length ? JSON.stringify(needsEstimate.map(i => ({ id: i.id, name: i.name, date: i.next_event_date, people: i.people, notes: i.notes }))) : 'none'}.`, { searches: 12, fetches: 4 });
 
-  const result = await structured(OutlookSchema,
+  const result = await structured('outlook', OutlookSchema,
     'Convert these research notes into the required JSON. Copy numbers, dates and URLs exactly as written. Rates are percentages (e.g. 6.25). For purchase_estimates use the exact expense ids given in the notes.',
     notes);
   const outlook: Outlook = { ...result, created_at: new Date().toISOString() };

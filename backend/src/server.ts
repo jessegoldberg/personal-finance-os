@@ -10,6 +10,8 @@ import { parseStatement, importStatement, setManualBalance } from './importer';
 import { generateReport, latestReport, chat } from './advisor';
 import { valuateHome, homeSummary } from './valuation';
 import { startJob, getJob } from './jobs';
+import { localStatus, localEnabled } from './localllm';
+import { localAsk, categorizeUncategorized, uncategorizedSummary, undoLocalCategories, localTest } from './localtasks';
 import { listPlanned } from './planner';
 import { refreshOutlook, latestOutlook } from './outlook';
 
@@ -30,7 +32,7 @@ const route = (fn: Handler): express.RequestHandler => async (req, res) => {
 const num = (v: any) => (v === '' || v === null || v === undefined || isNaN(Number(v)) ? null : Number(v));
 const newId = (prefix: string) => `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-app.get(['/health', '/api/health'], (_req, res) => res.json({ status: 'ok', ai: !!process.env.ANTHROPIC_API_KEY, plaidEnv: process.env.PLAID_ENV || 'sandbox' }));
+app.get(['/health', '/api/health'], (_req, res) => res.json({ status: 'ok', ai: !!process.env.ANTHROPIC_API_KEY, localAi: localEnabled(), plaidEnv: process.env.PLAID_ENV || 'sandbox' }));
 
 // ---- Plaid ----
 app.post('/api/plaid/link-token', route(async req => ({
@@ -140,7 +142,17 @@ app.get('/api/transactions', route(req => {
   return { rows, total };
 }));
 
-app.get('/api/categories', route(() => db.prepare('SELECT DISTINCT category FROM transactions ORDER BY category').all().map((r: any) => r.category)));
+const CATEGORY_CODES = ['FOOD_AND_DRINK', 'GENERAL_MERCHANDISE', 'GENERAL_SERVICES', 'HOME_IMPROVEMENT', 'RENT_AND_UTILITIES', 'TRANSPORTATION', 'TRAVEL',
+  'ENTERTAINMENT', 'PERSONAL_CARE', 'MEDICAL', 'BANK_FEES', 'GOVERNMENT_AND_NON_PROFIT', 'LOAN_PAYMENTS', 'TRANSFER_IN', 'TRANSFER_OUT', 'INCOME', 'OTHER'];
+// A category the household sets by hand sticks: Plaid syncs and AI categorizing won't overwrite it.
+app.patch('/api/transactions/:id', route(req => {
+  const category = String(req.body?.category ?? '');
+  if (!CATEGORY_CODES.includes(category)) throw Object.assign(new Error('Unknown category'), { status: 400 });
+  db.prepare("UPDATE transactions SET category = ?, category_source = 'user' WHERE transaction_id = ?").run(category, req.params.id);
+  return { ok: true };
+}));
+
+app.get('/api/categories', route(() => [...new Set([...CATEGORY_CODES, ...db.prepare('SELECT DISTINCT category FROM transactions').all().map((r: any) => r.category)])].sort()));
 
 // ---- Analytics ----
 app.get('/api/overview', route(() => getOverview()));
@@ -231,6 +243,37 @@ app.post('/api/advisor/chat', route(req => {
   const history = (req.body?.messages ?? []).filter((m: any) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string');
   if (!history.length || history[history.length - 1].role !== 'user') throw Object.assign(new Error('Last message must be from the user'), { status: 400 });
   return { jobId: startJob('chat', async () => ({ reply: await chat(history) }), false) };
+}));
+
+// ---- Local model (Ollama). Never falls back to Claude; the user chooses which to use. ----
+app.get('/api/ai/local/status', route(() => localStatus()));
+app.post('/api/ai/local/test', route(() => ({ jobId: startJob('local-test', localTest) })));
+app.post('/api/ai/local/chat', route(req => {
+  const history = (req.body?.messages ?? []).filter((m: any) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .map((m: any) => ({ role: m.role, content: String(m.content).slice(0, 2000) }));
+  if (!history.length || history[history.length - 1].role !== 'user') throw Object.assign(new Error('Last message must be from the user'), { status: 400 });
+  return { jobId: startJob('local-chat', () => localAsk(history), false) };
+}));
+app.get('/api/ai/local/categorize', route(() => uncategorizedSummary()));
+app.post('/api/ai/local/categorize', route(req => ({ jobId: startJob('local-categorize', () => categorizeUncategorized(Number(req.body?.limit) || 40)) })));
+app.post('/api/ai/local/categorize/undo', route(() => ({ reverted: undoLocalCategories() })));
+
+// Claude list prices per million tokens (Opus 5.5); cache writes are 1.25x input, web searches $10 per 1,000.
+const PRICE = { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5, search: 0.01 };
+app.get('/api/ai/usage', route(req => {
+  const days = Math.min(Number(req.query.days) || 30, 365);
+  const rows = db.prepare(`SELECT provider, feature, COUNT(*) AS requests, SUM(ok = 0) AS failures, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+      SUM(cache_read_tokens) AS cache_read, SUM(cache_write_tokens) AS cache_write, SUM(web_searches) AS searches, AVG(seconds) AS avg_seconds
+    FROM ai_usage WHERE created_at >= datetime('now', ?) GROUP BY provider, feature ORDER BY provider, feature`).all(`-${days} days`);
+  const withCost = rows.map((r: any) => ({
+    ...r,
+    cost: r.provider === 'claude'
+      ? (r.input * PRICE.input + r.output * PRICE.output + r.cache_read * PRICE.cacheRead + r.cache_write * PRICE.cacheWrite) / 1e6 + r.searches * PRICE.search
+      : 0,
+    // What cache reads would have cost at the full input price.
+    cache_savings: r.provider === 'claude' ? r.cache_read * (PRICE.input - PRICE.cacheRead) / 1e6 : 0,
+  }));
+  return { days, rows: withCost, total_cost: withCost.reduce((s: number, r: any) => s + r.cost, 0) };
 }));
 
 app.get('/api/jobs/:id', route(req => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LayoutDashboard, Receipt, PieChart, TrendingDown, Wallet, Sparkles, Landmark, RefreshCw, Menu, X, Home as HomeIcon, CalendarHeart } from 'lucide-react';
+import { LayoutDashboard, Receipt, PieChart, TrendingDown, Wallet, Sparkles, Landmark, RefreshCw, Menu, X, Home as HomeIcon, CalendarHeart, Cpu } from 'lucide-react';
 import { api } from './lib/api';
 import { relativeTime } from './lib/format';
 import { Spinner } from './components/ui';
@@ -13,6 +13,7 @@ import Advisor from './pages/Advisor';
 import Accounts from './pages/Accounts';
 import Home from './pages/Home';
 import PlanAhead from './pages/PlanAhead';
+import AISettings from './pages/AISettings';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, Component: Dashboard },
@@ -24,6 +25,7 @@ const PAGES = [
   { id: 'transactions', label: 'Transactions', icon: Receipt, Component: Transactions },
   { id: 'income', label: 'Income', icon: Wallet, Component: Income },
   { id: 'accounts', label: 'Accounts', icon: Landmark, Component: Accounts },
+  { id: 'ai', label: 'AI & Usage', icon: Cpu, Component: AISettings },
 ] as const;
 
 export type PageId = typeof PAGES[number]['id'];

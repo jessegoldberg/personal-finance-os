@@ -26,6 +26,7 @@ addColumn('properties', 'escrow_monthly', 'REAL');
 addColumn('debts', 'promo_end_date', 'TEXT');
 addColumn('debts', 'promo_deferred', 'INTEGER DEFAULT 0');
 addColumn('debts', 'regular_apr', 'REAL');
+addColumn('transactions', 'category_source', 'TEXT');
 
 // Container for accounts Plaid can't reach; their data comes from statement imports.
 db.prepare("INSERT OR IGNORE INTO items (item_id, access_token, institution_name, products) VALUES ('manual', '', 'Manual & imported', 'manual')").run();

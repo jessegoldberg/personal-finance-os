@@ -45,7 +45,7 @@ export interface Debt {
 
 export interface Transaction {
   transaction_id: string; account_id: string; account_name: string; mask: string | null; amount: number; date: string; name: string;
-  merchant_name: string | null; category: string; detailed_category: string | null; pending: number; logo_url: string | null;
+  merchant_name: string | null; category: string; detailed_category: string | null; pending: number; logo_url: string | null; category_source: string | null;
 }
 
 export interface RecurringCharge {
@@ -139,4 +139,15 @@ export interface Outlook {
   timing: { decision: string; window: string; rationale: string; watch_for: string; confidence: 'high' | 'medium' | 'low' }[];
   purchase_estimates: { expense_id: string; typical_cost: number; best_time_to_buy: string; tips: string }[];
   sources: { title: string; url: string }[];
+}
+
+export interface LocalStatus {
+  enabled: boolean; provider: string; baseUrl: string; model: string; timeoutSeconds: number; maxTokens: number; numCtx: number;
+  busy: boolean; queued: number; reachable: boolean; installed: string[]; modelInstalled: boolean; error: string | null;
+}
+export const localReady = (s: LocalStatus | null | undefined) => !!s && s.enabled && s.reachable && s.modelInstalled;
+
+export interface UsageRow {
+  provider: 'claude' | 'local'; feature: string; requests: number; failures: number; input: number; output: number;
+  cache_read: number; cache_write: number; searches: number; avg_seconds: number | null; cost: number; cache_savings: number;
 }

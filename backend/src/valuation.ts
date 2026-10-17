@@ -124,7 +124,7 @@ async function research(home: Home, rentcast: any, ppsf: ReturnType<typeof ppsfC
     })),
   } : null;
 
-  return webResearch(RESEARCH_SYSTEM, `Value this home as of ${new Date().toISOString().slice(0, 10)}.
+  return webResearch('valuation', RESEARCH_SYSTEM, `Value this home as of ${new Date().toISOString().slice(0, 10)}.
 
 Owner-provided facts: ${JSON.stringify(facts)}
 
@@ -132,11 +132,11 @@ Property-data API result (RentCast AVM; comps are listing-based, "Inactive" usua
 
 Price-per-sqft check from those comps: ${ppsf ? JSON.stringify(ppsf) : 'unavailable'}
 
-Research with web search, then write your full appraisal notes: subject facts, assessed value, each public estimate, each comp (address, price, date, status, sqft, beds/baths, distance, source URL), market trend, current mortgage/HELOC rates, typical rent for a similar home, typical price of a smaller home nearby, and your reconciled value with low/high range and confidence.`);
+Research with web search, then write your full appraisal notes: subject facts, assessed value, each public estimate, each comp (address, price, date, status, sqft, beds/baths, distance, source URL), market trend, current mortgage/HELOC rates, typical rent for a similar home, typical price of a smaller home nearby, and your reconciled value with low/high range and confidence.`, { searches: 10, fetches: 5 });
 }
 
 async function structure(notes: string, home: Home) {
-  const raw = await structured(ValuationSchema,
+  const raw = await structured('valuation', ValuationSchema,
     'Convert these appraisal notes into the required JSON exactly. Copy numbers and URLs as written; use 0 or an empty string where the notes have no value. Mortgage rates are percentages (e.g. 6.3).',
     `Subject: ${home.address}\n\nAppraisal notes:\n${notes}`);
   return denull(raw);
