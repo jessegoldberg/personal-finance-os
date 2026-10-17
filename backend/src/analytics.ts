@@ -214,6 +214,7 @@ export function detectRecurringCharges(): RecurringCharge[] {
     FROM transactions t JOIN accounts a USING(account_id)
     WHERE t.amount > 0 AND a.hidden = 0 AND t.category NOT IN ('TRANSFER_IN', 'TRANSFER_OUT', 'LOAN_PAYMENTS', 'INCOME')
       AND COALESCE(t.detailed_category, '') != 'BANK_FEES_INTEREST_CHARGE'
+      AND NOT (t.category = 'BANK_FEES' AND lower(t.name) LIKE '%interest%')
       AND t.date >= date('now', '-400 days') ORDER BY t.date`).all();
   const decisions = new Map<string, any>(db.prepare('SELECT * FROM recurring_decisions').all().map((d: any) => [d.key, d]));
 
