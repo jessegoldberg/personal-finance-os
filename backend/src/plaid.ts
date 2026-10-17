@@ -1,5 +1,6 @@
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
 import { db } from './db';
+import { reclassifyDebtPayments } from './debtmatch';
 
 const plaid = new PlaidApi(new Configuration({
   basePath: process.env.PLAID_ENV === 'production' ? PlaidEnvironments.Production : PlaidEnvironments.Sandbox,
@@ -223,6 +224,7 @@ export function syncAll(): Promise<void> {
       for (const { item_id } of db.prepare("SELECT item_id FROM items WHERE products != 'manual'").all()) {
         try { await syncItem(item_id); } catch (e) { console.error('Sync failed for', item_id, plaidErrorMessage(e)); }
       }
+      reclassifyDebtPayments();
     })().finally(() => { syncing = null; });
   }
   return syncing;

@@ -11,6 +11,7 @@ import { generateReport, latestReport, chat } from './advisor';
 import { valuateHome, homeSummary } from './valuation';
 import { startJob, getJob } from './jobs';
 import { localStatus, localEnabled } from './localllm';
+import { reclassifyDebtPayments } from './debtmatch';
 import { localAsk, categorizeUncategorized, uncategorizedSummary, undoLocalCategories, localTest } from './localtasks';
 import { listPlanned } from './planner';
 import { refreshOutlook, latestOutlook } from './outlook';
@@ -122,7 +123,10 @@ app.post('/api/import/:accountId', route(req => {
     payments: parsed.rows.filter(r => r.category === 'LOAN_PAYMENTS').reduce((s, r) => s + Math.abs(r.amount), 0),
     sample: parsed.rows.slice(0, 8),
   };
-  return dryRun ? summary : { ...summary, ...importStatement(a.account_id, parsed) };
+  if (dryRun) return summary;
+  const result = importStatement(a.account_id, parsed);
+  reclassifyDebtPayments();
+  return { ...summary, ...result };
 }));
 
 app.get('/api/transactions', route(req => {
@@ -182,6 +186,7 @@ app.post('/api/debts', route(req => {
     VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, b.name, b.kind || 'other', num(b.balance) ?? 0, num(b.apr), num(b.min_payment), b.next_due_date || null,
       b.promo_end_date || null, b.promo_deferred ? 1 : 0, num(b.regular_apr));
+  reclassifyDebtPayments();
   return db.prepare('SELECT * FROM debts WHERE id = ?').get(id);
 }));
 
@@ -199,6 +204,7 @@ app.put('/api/debts/:id', route(req => {
     db.prepare('UPDATE debts SET promo_end_date = ?, promo_deferred = ?, regular_apr = ? WHERE id = ?')
       .run(b.promo_end_date || null, b.promo_deferred ? 1 : 0, num(b.regular_apr), req.params.id);
   }
+  reclassifyDebtPayments();
   return db.prepare('SELECT * FROM debts WHERE id = ?').get(req.params.id);
 }));
 
@@ -338,6 +344,7 @@ app.use(express.static(publicPath));
 app.get('*', (_req, res) => res.sendFile(path.join(publicPath, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
 
 app.listen(PORT, () => {
+  reclassifyDebtPayments();
   console.log(`✅ Server running on http://localhost:${PORT}`);
   syncAll().catch(() => {});
   setInterval(() => syncAll().catch(() => {}), 6 * 60 * 60 * 1000);
