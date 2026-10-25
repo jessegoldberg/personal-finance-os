@@ -16,6 +16,9 @@ import { localAsk, categorizeUncategorized, uncategorizedSummary, undoLocalCateg
 import { listPlanned } from './planner';
 import { refreshOutlook, latestOutlook } from './outlook';
 
+import { currentDebtPlan } from './debtplan-data';
+import { budgetStatus } from './paid-budget';
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '15mb' }));
@@ -243,6 +246,19 @@ app.put('/api/budgets/:category', route(req => {
 }));
 
 // ---- AI advisor ----
+app.put('/api/advisor/plan-assumptions', route(req => {
+  const body=req.body;
+  if(!body || typeof body!=='object' || Array.isArray(body) || Object.keys(body).some(k=>!['cash_buffer_target','tax_reserve_monthly'].includes(k))) throw Object.assign(new Error('Invalid plan assumption fields.'),{status:400});
+  for(const key of ['cash_buffer_target','tax_reserve_monthly']) {
+    const value=body[key];
+    if(value!==null && (typeof value!=='number' || !Number.isFinite(value) || value<0 || value>1e7)) throw Object.assign(new Error('Enter a nonnegative amount, or reset to the default.'),{status:400});
+  }
+  db.transaction(()=>{for(const key of ['cash_buffer_target','tax_reserve_monthly'])setSetting('debt_plan_'+key,body[key]===null?'':String(body[key]));})();
+  return {ok:true};
+}));
+app.get('/api/advisor/debt-plan', route(() => currentDebtPlan()));
+app.get('/api/ai/budget', route(() => budgetStatus()));
+
 app.get('/api/advisor/latest', route(() => ({ report: latestReport() })));
 app.post('/api/advisor/analyze', route(() => ({ jobId: startJob('analyze', async () => ({ report: await generateReport() })) })));
 app.post('/api/advisor/chat', route(req => {
@@ -344,8 +360,8 @@ app.use(express.static(publicPath));
 app.get('*', (_req, res) => res.sendFile(path.join(publicPath, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
 
 app.listen(PORT, () => {
-  reclassifyDebtPayments();
+  if (process.env.FINANCE_STARTUP_REFRESH_ENABLED !== 'false') reclassifyDebtPayments();
   console.log(`✅ Server running on http://localhost:${PORT}`);
-  syncAll().catch(() => {});
+  if (process.env.FINANCE_STARTUP_REFRESH_ENABLED !== 'false') syncAll().catch(() => {});
   setInterval(() => syncAll().catch(() => {}), 6 * 60 * 60 * 1000);
 });

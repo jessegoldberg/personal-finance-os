@@ -71,7 +71,7 @@ export interface PayoffResult {
 }
 
 export interface AdvisorReport {
-  created_at: string; headline: string; health_score: number; summary: string; monthly_surplus_estimate: number; recommended_extra_payment: number; monthly_set_aside_for_life_events?: number;
+  created_at: string; headline: string; health_score: number | null; summary: string; monthly_surplus_estimate: number; recommended_extra_payment: number; monthly_set_aside_for_life_events?: number;
   strategy: { method: string; rationale: string; debt_free_date: string | null; interest_saved_vs_minimums: number };
   action_plan: { when: string; action: string; amount: number | null; from_account: string | null; to_account: string | null; why: string; estimated_monthly_savings: number | null }[];
   spending_cuts: { target: string; current_monthly: number; suggested_monthly: number; monthly_savings: number; reason: string }[];

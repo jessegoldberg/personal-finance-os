@@ -4,14 +4,14 @@ FROM node:18-alpine AS builder
 # Build backend
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* backend/pnpm-lock.yaml* ./
-RUN npm install
+RUN npm ci
 COPY backend ./
 RUN rm -rf dist tsconfig.tsbuildinfo && npm run build
 
 # Build frontend
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* frontend/pnpm-lock.yaml* ./
-RUN npm install
+RUN npm ci
 COPY frontend ./
 RUN npm run build
 
@@ -23,7 +23,7 @@ WORKDIR /app
 # Install backend runtime dependencies
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* backend/pnpm-lock.yaml* ./
-RUN npm install --production
+RUN npm ci --omit=dev
 
 # Copy built backend
 COPY --from=builder /app/backend/dist ./dist

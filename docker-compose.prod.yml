@@ -11,12 +11,15 @@ services:
       - "8080:3000"
     environment:
       NODE_ENV: production
+      FINANCE_STARTUP_REFRESH_ENABLED: ${FINANCE_STARTUP_REFRESH_ENABLED:-true}
       PORT: 3000
       DATABASE_URL: sqlite:////app/data/database.sqlite
       PLAID_CLIENT_ID: ${PLAID_CLIENT_ID}
       PLAID_SECRET: ${PLAID_SECRET}
       PLAID_ENV: ${PLAID_ENV:-sandbox}
       PLAID_REDIRECT_URI: ${PLAID_REDIRECT_URI}
+      # Paid analysis is disabled by default. Reservations persist across restarts.
+      PAID_AI_MONTHLY_BUDGET_USD: ${PAID_AI_MONTHLY_BUDGET_USD:-0}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       RENTCAST_API_KEY: ${RENTCAST_API_KEY:-}
       # Local model (Ollama). Off unless LOCAL_LLM_PROVIDER=ollama.

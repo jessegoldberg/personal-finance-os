@@ -16,6 +16,7 @@ function Check({ ok, label }: { ok: boolean; label: string }) {
 }
 
 export default function AISettings(_: PageProps) {
+  const { data: budget } = useApi<{enabled:boolean;reason:string;monthly_limit:number;reserved:number;remaining:number}>('/api/ai/budget');
   const { data: local, reload } = useApi<LocalStatus>('/api/ai/local/status');
   const [days, setDays] = useState(30);
   const { data: usage } = useApi<{ rows: UsageRow[]; total_cost: number }>(`/api/ai/usage?days=${days}`);
@@ -41,6 +42,12 @@ export default function AISettings(_: PageProps) {
     <>
       <PageHeader title="AI & Usage" subtitle="Which model does what, whether your local server is reachable, and what the Claude API is costing you." />
 
+      <Card className="mb-4 p-5">
+        <p className="text-sm font-semibold text-white">Paid-analysis allowance</p>
+        <p className="mt-2 text-sm text-slate-400">{budget?.reason ?? 'Checking allowance…'}</p>
+        {budget&&<p className="mt-2 text-sm text-slate-300">Monthly limit {money(budget.monthly_limit,true)} · Reserved {money(budget.reserved,true)} · Remaining {money(budget.remaining,true)}</p>}
+        <p className="mt-2 text-xs text-slate-500">The debt action plan uses no AI credits. Paid reservations use conservative maximums and are kept after errors or restarts. They are not your provider balance or bill. Live paid research is paused.</p>
+      </Card>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-5">
           <p className="flex items-center gap-2 text-sm font-semibold text-slate-100"><Cpu className="h-4 w-4 text-sky-400" /> Local model (Ollama)</p>
@@ -76,7 +83,7 @@ export default function AISettings(_: PageProps) {
             <li className="flex justify-between gap-3"><span className="text-slate-400">Quick chat answers</span><Badge tone="info"><Cpu className="h-3 w-3" /> Local (your choice per question)</Badge></li>
             <li className="flex justify-between gap-3"><span className="text-slate-400">Sorting uncategorized purchases</span><Badge tone="info"><Cpu className="h-3 w-3" /> Local</Badge></li>
             <li className="flex justify-between gap-3"><span className="text-slate-400">AI plan, deep chat</span><Badge tone="good"><Sparkles className="h-3 w-3" /> Claude</Badge></li>
-            <li className="flex justify-between gap-3"><span className="text-slate-400">Home valuation, market outlook (need web search)</span><Badge tone="good"><Sparkles className="h-3 w-3" /> Claude</Badge></li>
+            <li className="flex justify-between gap-3"><span className="text-slate-400">Live market research (currently paused)</span><Badge tone="good"><Sparkles className="h-3 w-3" /> Claude</Badge></li>
             <li className="flex justify-between gap-3"><span className="text-slate-400">Balances, payoff math, budgets, detection</span><Badge>Plain code — no AI</Badge></li>
           </ul>
           <p className="mt-4 text-xs text-slate-500">If the local model is down, local features show an error and offer Claude as a button — nothing switches to paid usage on its own.</p>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Sparkles, AlertTriangle, Scissors, Target, CalendarCheck, Send, HelpCircle, Check, RefreshCw, Home as HomeIcon, Cpu } from 'lucide-react';
+import { DebtActionPlan } from '../components/DebtActionPlan';
 import type { PageProps } from '../App';
 import { useApi } from '../hooks/useApi';
 import { api, runJob, AdvisorReport, LocalStatus, localReady } from '../lib/api';
@@ -34,6 +35,7 @@ const SUGGESTIONS = [
 type ChatMessage = { role: 'user' | 'assistant'; content: string; provider?: 'local' | 'claude' };
 
 function Chat() {
+  const { data: budget } = useApi<{enabled:boolean;reason:string}>('/api/ai/budget');
   const { data: local } = useApi<LocalStatus>('/api/ai/local/status');
   const [mode, setMode] = useState<'local' | 'claude' | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -42,13 +44,14 @@ function Chat() {
   const [error, setError] = useState<{ message: string; text: string; provider: 'local' | 'claude' } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const canLocal = localReady(local);
-  const active = mode ?? (canLocal ? 'local' : 'claude');
+  const active = mode ?? 'local';
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, busy]);
 
   // The user picks the provider; a local failure never silently falls through to the paid API.
   const send = async (text: string, provider = active) => {
     if (!text.trim() || busy) return;
+    if (provider === 'claude' && !budget?.enabled) { setError({message:budget?.reason ?? 'Paid analysis is paused.',text,provider}); return; }
     const next = [...messages, { role: 'user' as const, content: text.trim() }];
     setMessages(next);
     setInput('');
@@ -77,8 +80,8 @@ function Chat() {
               className={`rounded-md px-2.5 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-40 ${active === 'local' ? 'bg-white/10 text-white' : 'text-slate-400'}`}>
               <Cpu className="mr-1 inline h-3 w-3" />Quick · local
             </button>
-            <button onClick={() => setMode('claude')} title="Full analysis with Claude (uses API credits)"
-              className={`rounded-md px-2.5 py-1 font-medium ${active === 'claude' ? 'bg-white/10 text-white' : 'text-slate-400'}`}>
+            <button disabled={!budget?.enabled} onClick={() => setMode('claude')} title="Full analysis with Claude (uses API credits)"
+              className={`rounded-md px-2.5 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-40 ${active === 'claude' ? 'bg-white/10 text-white' : 'text-slate-400'}`}>
               <Sparkles className="mr-1 inline h-3 w-3" />Deep · Claude
             </button>
           </div>
@@ -113,7 +116,7 @@ function Chat() {
         {error && (
           <div className="space-y-2">
             <ErrorNote error={error.message} />
-            {error.provider === 'local' && (
+            {error.provider === 'local' && budget?.enabled && (
               <button className="btn-secondary text-xs" onClick={() => { setMode('claude'); send(error.text, 'claude'); }}>
                 <Sparkles className="h-3.5 w-3.5" /> Ask Claude instead (uses API credits)
               </button>
@@ -124,15 +127,15 @@ function Chat() {
       </div>
       <form className="flex gap-2 border-t border-white/[0.06] p-3" onSubmit={e => { e.preventDefault(); send(input); }}>
         <input className="input" placeholder={active === 'local' ? 'Quick question about your money…' : 'Ask anything about your money…'} value={input} onChange={e => setInput(e.target.value)} />
-        <button className="btn-primary" disabled={!!busy || !input.trim()} aria-label="Send"><Send className="h-4 w-4" /></button>
+        <button className="btn-primary" disabled={!!busy || !input.trim() || (active==='local' ? !canLocal : !budget?.enabled)} aria-label="Send"><Send className="h-4 w-4" /></button>
       </form>
     </Card>
   );
 }
 
-export default function Advisor(_: PageProps) {
+export default function Advisor({version}: PageProps) {
   const { data, reload, setData } = useApi<{ report: AdvisorReport | null }>('/api/advisor/latest');
-  const { data: health } = useApi<{ ai: boolean }>('/api/health');
+  const { data: budget } = useApi<{enabled:boolean;reason:string;monthly_limit:number;remaining:number}>('/api/ai/budget');
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
@@ -160,29 +163,28 @@ export default function Advisor(_: PageProps) {
 
   return (
     <>
-      <PageHeader title="AI Advisor" subtitle="A plan built from your real accounts — exactly where each dollar should go."
+      <PageHeader title="Debt strategy & advisor" subtitle="A calculated plan first, with optional paid reasoning under a fixed allowance."
         actions={
-          <button className="btn-primary" onClick={analyze} disabled={running || health?.ai === false}>
+          <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-40" onClick={analyze} disabled={running || !budget?.enabled}>
             {running ? <Spinner /> : report ? <RefreshCw className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-            {running ? 'Analyzing (about a minute)…' : report ? 'Rebuild plan' : 'Build my plan'}
+            {running ? 'Analyzing (about a minute)…' : report ? 'Update paid analysis' : 'Optional paid analysis'}
           </button>
         } />
 
-      {health?.ai === false && (
-        <div className="mb-4"><ErrorNote error="ANTHROPIC_API_KEY isn't set on the server. Add it to .env on hermes and restart the container." /></div>
-      )}
+      <DebtActionPlan version={version}/>
+      {!budget?.enabled && <p className="mb-4 rounded-lg border border-white/10 p-3 text-sm text-slate-400">{budget?.reason ?? 'Checking paid-analysis allowance…'} Existing AI reports below are saved historical analysis; use the calculated plan above for current numbers.</p>}
       <div className="mb-4"><ErrorNote error={error} /></div>
 
       {!report ? (
-        <Card>
-          <Empty icon={Sparkles} title={running ? 'Reviewing every account, debt and transaction…' : 'No plan yet'}
-            body="The advisor reviews balances, APRs, due dates, income and 4 months of spending, then produces a dated action plan, spending cuts and budgets." />
-        </Card>
+        budget?.enabled || running ? <Card>
+          <Empty icon={Sparkles} title={running ? 'Reviewing your calculated debt brief…' : 'No paid analysis yet'}
+            body="The calculated debt action plan above works without credits. Optional paid analysis is available only when the app has an allowance and the planning data checks pass." />
+        </Card> : null
       ) : (
         <div className="space-y-4">
           <Card className="p-5">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-              <ScoreRing score={report.health_score} />
+              {report.health_score != null && <ScoreRing score={report.health_score} />}
               <div className="flex-1">
                 <p className="text-lg font-semibold text-white">{report.headline}</p>
                 <p className="mt-2 text-sm leading-relaxed text-slate-400">{report.summary}</p>
@@ -207,7 +209,7 @@ export default function Advisor(_: PageProps) {
             </Card>
             <Card className="p-5">
               <p className="text-xs uppercase tracking-wider text-slate-500">Interest saved</p>
-              <p className="mt-2 text-xl font-semibold text-emerald-400">{money(report.strategy.interest_saved_vs_minimums)}</p>
+              <p className="mt-2 text-xl font-semibold text-emerald-400">{report.health_score===null?'Not calculated':money(report.strategy.interest_saved_vs_minimums)}</p>
             </Card>
           </div>
           <p className="px-1 text-sm text-slate-400">{report.strategy.rationale}</p>
