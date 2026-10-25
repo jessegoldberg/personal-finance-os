@@ -1,0 +1,22 @@
+{
+  "feature_commit": "1bc5b079aae95cde1f22e4e00df34fe814e3e998",
+  "image": "sha256:db2b3045642f9b7e8694bd3b319c9f27d86be629f2f6c9847fe1448e9029aedb",
+  "unit_tests_passed": 17,
+  "production_runtime": "Node 18",
+  "synthetic_http_acceptance": "passed",
+  "visual_check": "synthetic headless-browser preview",
+  "app_running": true,
+  "health": "healthy",
+  "frontend_served": true,
+  "paid_monthly_limit": 0,
+  "paid_enabled": false,
+  "paid_chat_denial_verified": true,
+  "new_paid_reservations": 0,
+  "financial_table_digests_unchanged": true,
+  "production_environment_unchanged": true,
+  "startup_refresh_skipped": true,
+  "actual_model_calls_in_validation": 0,
+  "backup_manifest_retained_on_hermes": true,
+  "free_plan_endpoint_verified": true,
+  "build_tool_advisories_tracked_in_issue": 2
+}

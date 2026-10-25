@@ -135,3 +135,18 @@ volumes and the additive ledger in place. Do not restore a database snapshot
 unless there is a separately verified need, since doing so can discard newer
 transactions. No backup retention changes, model downloads or network changes
 are part of this deployment.
+
+## Verified release outcome
+
+Feature commit `1bc5b07` was deployed to Hermes. Seventeen tests passed both
+locally and in the production Node 18 candidate image. Seeded HTTP acceptance
+passed with a ready synthetic profile, an unknown APR, assumption validation
+and a $0 paid-analysis denial. A synthetic headless-browser preview was visually
+checked. No actual inference provider was called during these checks.
+
+The live app and frontend are healthy. The free plan endpoint responded, and a
+synthetic paid-chat request was rejected at the $0 gate with zero reservations.
+Core financial table digests and the existing environment file hash matched
+before and after deployment. Production financial amounts and situation details
+are intentionally excluded from this release record. The private Hermes backup
+manifest retains the detailed integrity values. See `release-validation-issue1.json`.
