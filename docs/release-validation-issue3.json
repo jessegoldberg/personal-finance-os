@@ -1,0 +1,36 @@
+{
+  "issue": 3,
+  "date": "2026-10-26",
+  "feature_commit": "eb987d5",
+  "safety_commit": "f29daec",
+  "candidate_image": "sha256:cc50dc29f42bf14389ff39430317492af54fc0503db7edca42b51855d03f5d95",
+  "checks": {
+    "production_build": "passed",
+    "local_tests_passed": 26,
+    "production_node18_tests_passed": 26,
+    "test_containers_network": "none",
+    "test_production_volumes_mounted": false,
+    "synthetic_http_acceptance": "passed",
+    "synthetic_live_connection": "passed",
+    "synthetic_live_structured_response": "passed",
+    "local_model_token_accounting": "passed",
+    "readonly_credential_and_ca_mounts": "passed",
+    "served_frontend_gateway_label": "passed",
+    "container_health": "healthy",
+    "production_financial_tables_unchanged": true,
+    "production_environment_file_unchanged": true,
+    "container_address_preserved": "172.19.0.2",
+    "paid_limit_usd": 0,
+    "paid_provider_calls": 0,
+    "live_model_requests": "two synthetic requests; no financial records",
+    "production_chat_or_categorize_invoked": false
+  },
+  "limitations": {
+    "standalone_frontend_typecheck": "Two errors reproduced on baseline c4533bc and unchanged by this feature, tracked in issue #4",
+    "existing_frontend_dependency_advisories": "No dependency changes in this feature; existing build-tool work remains in issue #2",
+    "peak_gateway_capacity": "Not established; existing quotas and model limits were retained",
+    "local_chat_scope": "Calculated summary and current question only; detailed account data and conversation history are excluded"
+  },
+  "private_backup": "/home/jesse/pfo-release-backups/issue3-fb09d1e794e9440f87f31b5a289f45ea",
+  "rollback_image": "personal-finance-os:before-local-gateway-issue3"
+}

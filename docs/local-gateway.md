@@ -95,3 +95,19 @@ separately verified reason.
 
 The implementation uses Node's documented
 [HTTPS request CA and TLS options](https://nodejs.org/docs/latest-v18.x/api/https.html#httpsrequestoptions-callback).
+
+## Verified rollout
+
+Feature `eb987d5` and safety overlay `f29daec` were deployed on October 26,
+2026. The app is healthy, the scoped `local-pc` connection and a synthetic JSON
+schema completion passed, and local token accounting was verified. Paid allowance
+remains $0, startup refresh is false, and the financial-table digests and existing
+production environment file remained unchanged. Both secret mounts are read-only.
+
+All 26 tests passed locally and inside the production Node 18 image. A separate
+network-disabled HTTP acceptance container passed without production mounts or
+provider credentials. The standalone frontend type check still reports the same
+two baseline errors in Advisor/Dashboard, tracked in #4; the production Vite build
+passes. Existing frontend dependency upgrade work remains in #2. Full evidence
+is summarized in `release-validation-issue3.json`; sensitive integrity manifests
+and the online backup stay only in the private Hermes backup directory.
