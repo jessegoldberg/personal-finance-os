@@ -2,6 +2,8 @@
 services:
   personal-finance-os:
     environment:
+      FINANCE_STARTUP_REFRESH_ENABLED: "false"
+      PAID_AI_MONTHLY_BUDGET_USD: "0"
       LOCAL_LLM_PROVIDER: gateway
       LOCAL_LLM_BASE_URL: https://192.168.60.20:8443/v1
       LOCAL_LLM_MODEL: local-pc

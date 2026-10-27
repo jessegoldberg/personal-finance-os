@@ -5,7 +5,9 @@ Owner: Jesse. Finance issue #3, infrastructure issue #214.
 The app supports native `ollama` and authenticated OpenAI-compatible `gateway`
 providers. Local inference never falls back to Claude. Paid analysis remains at
 $0 unless separately configured by the operator; this integration does not
-change that allowance or run financial classification during deployment.
+change that allowance or run financial classification during deployment. The
+gateway overlay explicitly pins paid allowance to $0 and startup refresh to
+false, so those protections do not depend on transient shell variables.
 
 ## Production configuration
 
