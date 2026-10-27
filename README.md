@@ -162,3 +162,9 @@ Private.
 ---
 
 **Next Steps**: See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full project plan and how to contribute.
+
+## Private local AI gateway
+
+See [local gateway operations](docs/local-gateway.md) for scoped credentials,
+production enrollment, prompt limits, tests and rollback. Paid analysis stays
+disabled at the existing $0 allowance.

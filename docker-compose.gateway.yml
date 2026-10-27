@@ -1,0 +1,23 @@
+# Opt-in production overlay. No credentials belong in the repository or image.
+services:
+  personal-finance-os:
+    environment:
+      LOCAL_LLM_PROVIDER: gateway
+      LOCAL_LLM_BASE_URL: https://192.168.60.20:8443/v1
+      LOCAL_LLM_MODEL: local-pc
+      LOCAL_LLM_CREDENTIAL_FILE: /run/local-ai/credential.json
+      LOCAL_LLM_CA_CERT_FILE: /run/local-ai/root.crt
+      LOCAL_LLM_NUM_CTX: 4096
+    volumes:
+      - type: bind
+        source: /home/jesse/local-ai-gateway/credentials/personal-finance-os.json
+        target: /run/local-ai/credential.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /home/jesse/local-ai-gateway/caddy-data/caddy/pki/authorities/local/root.crt
+        target: /run/local-ai/root.crt
+        read_only: true
+        bind:
+          create_host_path: false

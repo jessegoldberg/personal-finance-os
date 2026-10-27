@@ -50,20 +50,21 @@ export default function AISettings(_: PageProps) {
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-5">
-          <p className="flex items-center gap-2 text-sm font-semibold text-slate-100"><Cpu className="h-4 w-4 text-sky-400" /> Local model (Ollama)</p>
+          <p className="flex items-center gap-2 text-sm font-semibold text-slate-100"><Cpu className="h-4 w-4 text-sky-400" /> Local model{local?.provider === 'gateway' ? ' (private gateway)' : local?.provider === 'ollama' ? ' (Ollama)' : ''}</p>
           {!local ? <Spinner className="mt-4 h-4 w-4 text-slate-500" /> : (
             <>
               <ul className="mt-3 space-y-1.5">
                 <Check ok={local.enabled} label={local.enabled ? `Configured: ${local.model} at ${local.baseUrl}` : 'Not configured'} />
                 {local.enabled && <Check ok={local.reachable} label={local.reachable ? 'Reachable from this app’s server' : 'Not reachable from this app’s server'} />}
-                {local.enabled && local.reachable && <Check ok={local.modelInstalled} label={local.modelInstalled ? `${local.model} is installed` : `${local.model} is not installed`} />}
+                {local.enabled && local.reachable && <Check ok={local.modelInstalled} label={local.modelInstalled ? `${local.model} is available` : `${local.model} is not available`} />}
               </ul>
               {local.error && <div className="mt-3"><ErrorNote error={local.error} /></div>}
-              {local.installed.length > 0 && <p className="mt-3 text-xs text-slate-500">Installed on the server: {local.installed.join(', ')}</p>}
+              {local.installed.length > 0 && <p className="mt-3 text-xs text-slate-500">Available to this app: {local.installed.join(', ')}</p>}
               {local.enabled && (
-                <p className="mt-1 text-xs text-slate-500">Limits: {local.timeoutSeconds}s per request, {local.maxTokens} output tokens, {local.numCtx}-token context, one request at a time
+                <p className="mt-1 text-xs text-slate-500">Limits: {local.timeoutSeconds}s per request, {local.maxTokens} output tokens, {local.provider === 'gateway' ? `${local.maxPromptBytes}-byte prompt limit` : `${local.numCtx}-token context`}, one request at a time
                   {local.busy ? ` · busy now${local.queued ? `, ${local.queued} waiting` : ''}` : ''}.</p>
               )}
+              {local.provider === 'gateway' && <p className="mt-2 text-xs text-slate-500">Quick chat explains a short calculated summary. Account details and earlier messages stay out of these requests. Use the free debt action plan for payment decisions. Reachability checks the gateway; run a test to check the model.</p>}
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button className="btn-secondary" onClick={runTest} disabled={testing || !local.enabled}>{testing ? <Spinner /> : <Cpu className="h-4 w-4" />} {testing ? 'Testing…' : 'Run a test request'}</button>
                 <button className="btn-ghost" onClick={reload}><RefreshCw className="h-4 w-4" /> Recheck</button>
@@ -106,9 +107,9 @@ export default function AISettings(_: PageProps) {
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {[...claude, ...localRows].map(r => (
-                  <tr key={r.provider + r.feature}>
+                  <tr key={r.provider + r.feature + r.model}>
                     <td className="td text-slate-200">{FEATURE_LABEL[r.feature] ?? r.feature}{r.failures ? <span className="ml-2 text-xs text-rose-400">{r.failures} failed</span> : null}</td>
-                    <td className="td">{r.provider === 'local' ? <Badge tone="info">Local</Badge> : <Badge tone="good">Claude</Badge>}</td>
+                    <td className="td">{r.provider === 'local' ? <Badge tone="info">Local · {r.model}</Badge> : <Badge tone="good">Claude</Badge>}</td>
                     <td className="td text-right tabular-nums">{n(r.requests)}</td>
                     <td className="td text-right tabular-nums text-slate-400">{n(r.input)}</td>
                     <td className="td text-right tabular-nums text-slate-400">{n(r.cache_read)}</td>

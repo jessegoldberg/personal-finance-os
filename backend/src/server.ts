@@ -267,7 +267,7 @@ app.post('/api/advisor/chat', route(req => {
   return { jobId: startJob('chat', async () => ({ reply: await chat(history) }), false) };
 }));
 
-// ---- Local model (Ollama). Never falls back to Claude; the user chooses which to use. ----
+// ---- Local model (Ollama or private gateway). Never falls back to Claude; the user chooses which to use. ----
 app.get('/api/ai/local/status', route(() => localStatus()));
 app.post('/api/ai/local/test', route(() => ({ jobId: startJob('local-test', localTest) })));
 app.post('/api/ai/local/chat', route(req => {
@@ -284,9 +284,9 @@ app.post('/api/ai/local/categorize/undo', route(() => ({ reverted: undoLocalCate
 const PRICE = { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5, search: 0.01 };
 app.get('/api/ai/usage', route(req => {
   const days = Math.min(Number(req.query.days) || 30, 365);
-  const rows = db.prepare(`SELECT provider, feature, COUNT(*) AS requests, SUM(ok = 0) AS failures, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+  const rows = db.prepare(`SELECT provider, feature, model, COUNT(*) AS requests, SUM(ok = 0) AS failures, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
       SUM(cache_read_tokens) AS cache_read, SUM(cache_write_tokens) AS cache_write, SUM(web_searches) AS searches, AVG(seconds) AS avg_seconds
-    FROM ai_usage WHERE created_at >= datetime('now', ?) GROUP BY provider, feature ORDER BY provider, feature`).all(`-${days} days`);
+    FROM ai_usage WHERE created_at >= datetime('now', ?) GROUP BY provider, feature, model ORDER BY provider, feature, model`).all(`-${days} days`);
   const withCost = rows.map((r: any) => ({
     ...r,
     cost: r.provider === 'claude'

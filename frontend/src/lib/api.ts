@@ -143,11 +143,11 @@ export interface Outlook {
 
 export interface LocalStatus {
   enabled: boolean; provider: string; baseUrl: string; model: string; timeoutSeconds: number; maxTokens: number; numCtx: number;
-  busy: boolean; queued: number; reachable: boolean; installed: string[]; modelInstalled: boolean; error: string | null;
+  maxPromptBytes: number; busy: boolean; queued: number; reachable: boolean; installed: string[]; modelInstalled: boolean; error: string | null;
 }
 export const localReady = (s: LocalStatus | null | undefined) => !!s && s.enabled && s.reachable && s.modelInstalled;
 
 export interface UsageRow {
-  provider: 'claude' | 'local'; feature: string; requests: number; failures: number; input: number; output: number;
+  model: string; provider: 'claude' | 'local'; feature: string; requests: number; failures: number; input: number; output: number;
   cache_read: number; cache_write: number; searches: number; avg_seconds: number | null; cost: number; cache_savings: number;
 }

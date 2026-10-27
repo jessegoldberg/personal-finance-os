@@ -27,6 +27,17 @@ fi
 
 cd "$REPO_DIR"
 
+# Preserve the selected local gateway integration on later deployments.
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != "--gateway" ]; }; then
+    echo "Usage: $0 [--gateway]" >&2
+    exit 2
+fi
+COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+CURRENT_FILES=$(docker inspect personal-finance-os --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || true)
+if [ "${1:-}" = "--gateway" ] || [[ "$CURRENT_FILES" == *docker-compose.gateway.yml* ]]; then
+    COMPOSE+=(-f "$REPO_DIR/docker-compose.gateway.yml")
+fi
+
 echo "✅ Prerequisites checked"
 echo ""
 
@@ -38,33 +49,27 @@ echo ""
 
 # Build Docker image
 echo "🔨 Building Docker image..."
-docker build -t personal-finance-os:latest .
+"${COMPOSE[@]}" build personal-finance-os
 echo "✅ Image built"
 echo ""
 
-# Stop old container if running
-echo "🛑 Stopping old container (if running)..."
-docker compose -f "$COMPOSE_FILE" down --remove-orphans 2>/dev/null || true
-echo "✅ Old container removed"
-echo ""
-
-# Start new container
-echo "🚀 Starting container..."
-docker compose -f "$COMPOSE_FILE" up -d
-echo "✅ Container started"
+# Recreate only the application, preserving volumes and the scoped Docker network.
+echo "Starting the selected configuration..."
+"${COMPOSE[@]}" up -d --no-build --no-deps --force-recreate personal-finance-os
+echo "Service started"
 echo ""
 
 # Wait for health check
 echo "⏳ Waiting for service to be healthy..."
 sleep 5
 for i in {1..30}; do
-    if docker compose -f "$COMPOSE_FILE" exec -T personal-finance-os wget --quiet --tries=1 --spider http://localhost:3000/health 2>/dev/null; then
+    if "${COMPOSE[@]}" exec -T personal-finance-os wget --quiet --tries=1 --spider http://localhost:3000/health 2>/dev/null; then
         echo "✅ Service is healthy"
         break
     fi
     if [ $i -eq 30 ]; then
         echo "❌ Service failed to become healthy"
-        docker compose -f "$COMPOSE_FILE" logs
+        "${COMPOSE[@]}" logs --tail 50
         exit 1
     fi
     echo "  Attempt $i/30..."
